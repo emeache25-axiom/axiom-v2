@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+venv/
+.venv/
+env/
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*~
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# Logs y datos locales
+*.log
+*.sqlite
+*.db
+data/
+uploads/
+
+# Archivos temporales
+*.tmp
+*.bak
+*.orig
+
+# PostgreSQL dumps
+*.sql.gz
