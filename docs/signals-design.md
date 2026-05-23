@@ -126,3 +126,51 @@ AXIOM v2 no adivina, mide. La asignación de señales de este documento
 es una **hipótesis de trabajo informada**, no una verdad final. El
 sistema registra datos para evaluar, en el futuro, qué señales
 realmente predicen y cuáles son ruido.
+
+---
+
+## Arquitectura conceptual — módulos
+
+AXIOM v2 separa en módulos independientes lo que v1 mezclaba. Cada
+módulo hace una sola cosa:
+
+- **Régimen** → describe el presente. "Esto ES." (3 temporalidades)
+- **Estadísticas del Régimen** → audita la calidad del Régimen.
+- **Perspectivas** → predice el futuro. "Esto PODRÍA pasar."
+
+Nunca se le pide al mismo componente describir y predecir a la vez.
+
+### Módulo Régimen (en diseño/construcción)
+
+El módulo actual. Describe el estado del mercado en 3 temporalidades
+mediante la grilla de señales de este documento. Es una descripción
+del instante presente, no una predicción.
+
+### Módulo Estadísticas del Régimen (diseño diferido)
+
+Evalúa retrospectivamente la calidad del módulo Régimen: coherencia,
+estabilidad y correspondencia descriptiva. Responde preguntas como
+"cuando AXIOM dijo corto=ALCISTA, ¿el mercado realmente lo era?".
+
+Requiere un histórico de snapshots para existir. Se diseña en detalle
+cuando haya datos acumulados. NO se diseña ahora.
+
+Implicación para el presente: el modelo de datos del módulo Régimen
+debe archivar desde el día 1 todo lo que este módulo necesitará
+(precio de BTC en cada snapshot, votos individuales, timestamps).
+
+### Módulo Perspectivas (diseño diferido)
+
+Motor predictivo independiente. Genera expectativas hacia adelante
+para corto, medio y largo plazo. Se basa en indicadores y señales
+PROPIOS, distintos de los que alimentan el módulo Régimen.
+
+No depende del módulo Estadísticas. Es un proyecto de diseño aparte,
+de envergadura similar a la grilla del Régimen. Se diseña después de
+terminar el módulo Régimen. NO se diseña ahora.
+
+### Principio de orden
+
+Un módulo a la vez. El módulo Régimen se termina y construye antes
+de diseñar cualquier otro. Esto evita el error de v1 de agregar
+funcionalidades sobre la marcha sin planificación.
