@@ -174,3 +174,104 @@ terminar el módulo Régimen. NO se diseña ahora.
 Un módulo a la vez. El módulo Régimen se termina y construye antes
 de diseñar cualquier otro. Esto evita el error de v1 de agregar
 funcionalidades sobre la marcha sin planificación.
+
+---
+
+## Clasificación de señales
+
+Cada señal convierte su valor crudo en un voto de régimen. Los umbrales
+son una hipótesis inicial — se calibrarán con el módulo Estadísticas.
+
+### Señales de LARGO y MEDIO → votan 5 regímenes de ciclo
+(ACUMULACION / ALCISTA_A / ALCISTA_B / DISTRIBUCION / BAJISTA)
+
+**MVRV Z-Score** (largo, valuación) — heredada de v1, confirmada
+- < 0 → ACUMULACION (suelo)
+- 0–1 → ACUMULACION (neutro bajo)
+- 1–2 → ALCISTA_A
+- 2–3.5 → ALCISTA_B
+- > 3.5 → DISTRIBUCION (techo)
+
+**Mayer Multiple** (largo, momentum) — clasificación nueva (en v1 no votaba)
+- Valor: ratio precio / MA200
+- < 0.8 → ACUMULACION
+- 0.8–1.0 → ACUMULACION
+- 1.0–1.5 → ALCISTA_A
+- 1.5–2.4 → ALCISTA_B
+- > 2.4 → DISTRIBUCION (2.4 = nivel histórico de techo)
+
+**NUPL** (largo, sentimiento) — heredada de v1, confirmada
+- Dato de CMC viene en %, se divide por 100
+- < 0 → BAJISTA (capitulación)
+- 0–0.25 → ACUMULACION
+- 0.25–0.5 → ALCISTA_A
+- 0.5–0.75 → ALCISTA_B
+- > 0.75 → DISTRIBUCION (euforia)
+
+**lth_supply** (largo, flujo) — heredada de v1, confirmada
+- Valor en millones de BTC
+- > 15 → ACUMULACION
+- 14–15 → ACUMULACION
+- 13.5–14 → ALCISTA_A
+- 12.5–13.5 → ALCISTA_B
+- < 12.5 → DISTRIBUCION
+
+**btc_vs_ath** (medio, valuación) — heredada de v1, confirmada
+- Valor: % desde el ATH
+- < -60 → BAJISTA
+- -60 a -40 → ACUMULACION
+- -40 a -20 → ALCISTA_A
+- -20 a -5 → ALCISTA_B
+- > -5 → DISTRIBUCION
+
+**Precio vs MA50** (medio, momentum) — clasificación nueva
+- Valor: ratio precio / MA50, velas diarias
+- < 0.90 → BAJISTA
+- 0.90–0.97 → ACUMULACION
+- 0.97–1.05 → ALCISTA_A
+- 1.05–1.15 → ALCISTA_B
+- > 1.15 → DISTRIBUCION
+
+**fear_greed** (medio, sentimiento) — heredada de v1, confirmada
+- < 20 → ACUMULACION
+- 20–40 → ACUMULACION
+- 40–60 → ALCISTA_A
+- 60–80 → ALCISTA_B
+- > 80 → DISTRIBUCION
+
+**btc_dominance** (medio, flujo) — heredada de v1, confirmada
+- > 60 → BAJISTA
+- 57–60 → ACUMULACION
+- 53–57 → ALCISTA_A
+- 48–53 → ALCISTA_B
+- < 48 → DISTRIBUCION
+
+**vol_mcap_ratio** (medio, participación) — heredada de v1, confirmada
+- IMPORTANTE: input = promedio del ratio en ventana de semanas, no el valor instantáneo
+- < 2 → ACUMULACION
+- 2–4 → ACUMULACION
+- 4–7 → ALCISTA_A
+- 7–12 → ALCISTA_B
+- > 12 → DISTRIBUCION
+
+### Señales de CORTO → votan 3 estados direccionales
+(ALCISTA / LATERAL / BAJISTA)
+
+**Precio vs EMA20** (corto, momentum) — clasificación nueva
+- Valor: ratio precio / EMA20, velas 4h
+- < 0.98 → BAJISTA
+- 0.98–1.02 → LATERAL
+- > 1.02 → ALCISTA
+
+**funding_btc** (corto, sentimiento) — adaptada de v1 a 3 estados
+- Valor: funding rate de BTC perpetuos
+- < -0.01 → BAJISTA
+- -0.01 a 0.01 → LATERAL
+- > 0.01 → ALCISTA
+
+**Volumen relativo** (corto, participación) — clasificación nueva
+- Valor: ratio volumen_actual / promedio_20_velas, velas 4h
+- Direccionada por el color de la vela:
+- ratio < 0.80 → LATERAL (volumen bajo, sin convicción)
+- ratio ≥ 0.80 + vela verde → ALCISTA
+- ratio ≥ 0.80 + vela roja → BAJISTA
