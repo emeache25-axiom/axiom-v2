@@ -1,4 +1,4 @@
-# Python
+.# Python
 __pycache__/
 *.py[cod]
 *$py.class
@@ -22,7 +22,7 @@ Thumbs.db
 *.log
 *.sqlite
 *.db
-data/
+/data/
 uploads/
 
 # Archivos temporales
