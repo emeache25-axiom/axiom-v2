@@ -90,3 +90,31 @@ async def ping() -> bool:
         return True
     except httpx.HTTPError:
         return False
+
+
+async def fetch_top_coins(limit: int = 50) -> list[dict] | None:
+    """
+    Trae las top N cryptos por market cap desde CoinGecko.
+    Incluye precio, variación 24h, market cap y categoría.
+
+    Returns:
+        Lista de dicts con datos de cada crypto, o None si falla.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            resp = await client.get(
+                f"{_BASE}/coins/markets",
+                params={
+                    "vs_currency":            "usd",
+                    "order":                  "market_cap_desc",
+                    "per_page":               limit,
+                    "page":                   1,
+                    "price_change_percentage":"24h",
+                    "sparkline":              "false",
+                },
+            )
+            resp.raise_for_status()
+            return resp.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        print(f"[coingecko] fetch_top_coins fallo: {exc}")
+        return None
