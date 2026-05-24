@@ -2,6 +2,7 @@
 AXIOM v2 — Punto de entrada de la aplicación.
 """
 import os
+import logging
 from contextlib import asynccontextmanager
 
 import asyncpg
@@ -10,6 +11,12 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 from backend.api.regime import router as regime_router
+from backend.scheduler.tasks import start_scheduler, stop_scheduler
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+)
 
 load_dotenv()
 
@@ -20,13 +27,17 @@ if not DATABASE_URL:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Startup
     app.state.db_pool = await asyncpg.create_pool(
         DATABASE_URL, min_size=1, max_size=5,
     )
-    print("[AXIOM v2] Pool de PostgreSQL inicializado")
+    logging.info("[AXIOM v2] Pool de PostgreSQL inicializado")
+    start_scheduler(app.state.db_pool)
     yield
+    # Shutdown
+    stop_scheduler()
     await app.state.db_pool.close()
-    print("[AXIOM v2] Pool de PostgreSQL cerrado")
+    logging.info("[AXIOM v2] Pool de PostgreSQL cerrado")
 
 
 app = FastAPI(
