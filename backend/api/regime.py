@@ -27,8 +27,8 @@ async def get_current_regime(request: Request):
 @router.get("/latest")
 async def get_latest_regime(request: Request):
     """
-    Devuelve el último snapshot guardado en PostgreSQL.
-    Más rápido que /current — no llama a APIs externas.
+    Devuelve el último snapshot guardado en PostgreSQL,
+    incluyendo las señales individuales.
     """
     async with request.app.state.db_pool.acquire() as conn:
         row = await conn.fetchrow("""
@@ -42,8 +42,31 @@ async def get_latest_regime(request: Request):
             LIMIT 1
         """)
 
-    if not row:
-        raise HTTPException(status_code=404, detail="No hay snapshots guardados")
+        if not row:
+            raise HTTPException(status_code=404, detail="No hay snapshots guardados")
+
+        signals = await conn.fetch("""
+            SELECT signal_id, timeframe, dimension, is_core,
+                   raw_value::float, voted_regime
+            FROM signal_readings
+            WHERE snapshot_id = $1
+            ORDER BY timeframe, signal_id
+        """, row["id"])
+
+    # Separar señales núcleo y de contexto
+    core_signals    = [dict(s) for s in signals if s["is_core"]]
+    context_signals = [dict(s) for s in signals if not s["is_core"]]
+
+    # Completitud por temporalidad
+    def completitud(tf: str) -> dict:
+        tf_signals  = [s for s in core_signals if s["timeframe"] == tf]
+        available   = [s for s in tf_signals if s["raw_value"] is not None]
+        missing     = [s["signal_id"] for s in tf_signals if s["raw_value"] is None]
+        return {
+            "signals_expected":  len(tf_signals),
+            "signals_available": len(available),
+            "missing_signals":   missing,
+        }
 
     return {
         "snapshot_id": row["id"],
@@ -51,22 +74,29 @@ async def get_latest_regime(request: Request):
         "btc_price":   float(row["btc_price"]),
         "regimes": {
             "largo": {
-                "regime":      row["regime_largo"],
-                "conviction":  row["conviction_largo"],
-                "consensus":   row["consensus_largo"],
-                "is_confirmed":row["confirmed_largo"],
+                "regime":       row["regime_largo"],
+                "conviction":   row["conviction_largo"],
+                "consensus":    row["consensus_largo"],
+                "is_confirmed": row["confirmed_largo"],
+                **completitud("largo"),
             },
             "medio": {
-                "regime":      row["regime_medio"],
-                "conviction":  row["conviction_medio"],
-                "consensus":   row["consensus_medio"],
-                "is_confirmed":row["confirmed_medio"],
+                "regime":       row["regime_medio"],
+                "conviction":   row["conviction_medio"],
+                "consensus":    row["consensus_medio"],
+                "is_confirmed": row["confirmed_medio"],
+                **completitud("medio"),
             },
             "corto": {
-                "regime":      row["regime_corto"],
-                "conviction":  row["conviction_corto"],
-                "consensus":   row["consensus_corto"],
-                "is_confirmed":row["confirmed_corto"],
+                "regime":       row["regime_corto"],
+                "conviction":   row["conviction_corto"],
+                "consensus":    row["consensus_corto"],
+                "is_confirmed": row["confirmed_corto"],
+                **completitud("corto"),
             },
+        },
+        "signals": {
+            "core":    core_signals,
+            "context": context_signals,
         },
     }
