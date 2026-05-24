@@ -275,3 +275,24 @@ son una hipótesis inicial — se calibrarán con el módulo Estadísticas.
 - ratio < 0.80 → LATERAL (volumen bajo, sin convicción)
 - ratio ≥ 0.80 + vela verde → ALCISTA
 - ratio ≥ 0.80 + vela roja → BAJISTA
+
+---
+
+## Requisito: transparencia sobre datos faltantes
+
+Las fuentes de datos externas pueden fallar (timeout, rate limit, caída
+de API). Cuando una señal núcleo no obtiene dato, el régimen se calcula
+igual con las señales disponibles — pero el sistema NO debe ocultarlo.
+
+Cada snapshot registra, por temporalidad:
+- cuántas señales núcleo se esperaban
+- cuántas llegaron con dato
+- cuáles faltaron
+
+Razón: un régimen calculado con señales faltantes es menos confiable y
+podría cambiar cuando la señal faltante vuelva. El usuario debe poder
+distinguir "ALCISTA con 3/3 señales" de "ALCISTA con 2/3 señales".
+
+Implicación para el modelo de datos: lo que no se registra hoy no se
+recupera mañana. Los campos de completitud se incorporan desde el inicio.
+El frontend (futuro) mostrará la completitud del cálculo.
