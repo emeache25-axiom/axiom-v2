@@ -15,6 +15,8 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.api.regime import router as regime_router
 from backend.api.market import router as market_router
+from backend.api.capital import router as capital_router
+from backend.api.news import router as news_router
 from backend.scheduler.tasks import start_scheduler, stop_scheduler
 
 logging.basicConfig(
@@ -65,6 +67,8 @@ app = FastAPI(
 
 app.include_router(regime_router)
 app.include_router(market_router)
+app.include_router(capital_router)
+app.include_router(news_router)
 app.mount("/static", StaticFiles(directory=FRONTEND_DIR / "static"), name="static")
 
 

@@ -72,3 +72,30 @@
   .signal-cards-grid{grid-template-columns:1fr !important;}
   .market-gl-grid{grid-template-columns:1fr !important;}
 }
+
+.news-src-btn.active{
+  background:var(--t1) !important;
+  color:var(--bg) !important;
+  border-color:var(--t1) !important;
+}
+
+@media(max-width:900px){
+  .news-grid-inner{grid-template-columns:repeat(2,1fr) !important;}
+}
+@media(max-width:640px){
+  .news-grid-inner{grid-template-columns:1fr !important;}
+}
+
+.news-card{
+  border-top:2px solid #C9A84C;
+  border-left:1px solid #C9A84C;
+  border-right:1px solid #C9A84C;
+  border-bottom:1px solid #C9A84C;
+  border-radius:10px;
+  overflow:hidden;
+  height:200px;
+  transition:opacity .2s;
+}
+.news-card-link:hover .news-card{
+  opacity:.8;
+}

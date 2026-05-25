@@ -2,6 +2,7 @@ const RegimeScreen = {
   activeTab: 'regime',
   regimeLoaded: false,
   marketLoaded: false,
+  capitalLoaded: false,
 
   onEnter() {
     const el = document.getElementById('screen-regime');
@@ -27,19 +28,25 @@ const RegimeScreen = {
       <button class="sub-tab" data-tab="market" onclick="RegimeScreen._activateTab('market')">
         <i class="ti ti-world" aria-hidden="true"></i> Mapa del mercado
       </button>
+      <button class="sub-tab" data-tab="capital" onclick="RegimeScreen._activateTab('capital')">
+        <i class="ti ti-adjustments" aria-hidden="true"></i> Capital
+      </button>
     </div>
     <div id="sub-regime"></div>
-    <div id="sub-market" style="display:none;"></div>`;
+    <div id="sub-market" style="display:none;"></div>
+    <div id="sub-capital" style="display:none;"></div>`;
   },
 
   _activateTab(tab) {
     this.activeTab = tab;
     document.querySelectorAll('.sub-tab').forEach(b =>
       b.classList.toggle('active', b.dataset.tab === tab));
-    document.getElementById('sub-regime').style.display = tab==='regime' ? '' : 'none';
-    document.getElementById('sub-market').style.display = tab==='market' ? '' : 'none';
-    if (tab==='regime' && !this.regimeLoaded) this._loadRegime();
-    if (tab==='market' && !this.marketLoaded) this._loadMarket();
+    document.getElementById('sub-regime').style.display  = tab==='regime'  ? '' : 'none';
+    document.getElementById('sub-market').style.display  = tab==='market'  ? '' : 'none';
+    document.getElementById('sub-capital').style.display = tab==='capital' ? '' : 'none';
+    if (tab==='regime'  && !this.regimeLoaded)  this._loadRegime();
+    if (tab==='market'  && !this.marketLoaded)  this._loadMarket();
+    if (tab==='capital' && !this.capitalLoaded) this._loadCapital();
   },
 
   async _loadRegime() {
@@ -53,6 +60,18 @@ const RegimeScreen = {
       document.getElementById('regime-ts').textContent = `BTC ${price} · ${ts}`;
       el.innerHTML = this._renderRegime(data);
       this.regimeLoaded = true;
+    } catch(e) {
+      el.innerHTML = `<div class="placeholder"><i class="ti ti-alert-circle"></i><p>Error al cargar</p></div>`;
+    }
+  },
+
+  async _loadCapital() {
+    const el = document.getElementById('sub-capital');
+    el.innerHTML = `<div class="placeholder"><i class="ti ti-refresh"></i><p>Cargando...</p></div>`;
+    try {
+      const data = await API.getCapitalSuggestion();
+      el.innerHTML = CapitalScreen.render(data);
+      this.capitalLoaded = true;
     } catch(e) {
       el.innerHTML = `<div class="placeholder"><i class="ti ti-alert-circle"></i><p>Error al cargar</p></div>`;
     }
