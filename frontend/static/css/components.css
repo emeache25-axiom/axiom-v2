@@ -1,0 +1,74 @@
+.card{
+  background:var(--c1);
+  border:0.5px solid var(--w1);
+  border-radius:var(--radius);
+  padding:18px;
+}
+
+.section-label{
+  font-family:var(--f2);font-size:9px;font-weight:500;
+  letter-spacing:.14em;text-transform:uppercase;
+  color:var(--t3);margin-bottom:12px;
+}
+
+/* Badges de régimen */
+.badge{
+  display:inline-flex;align-items:center;
+  padding:2px 8px;border-radius:4px;
+  font-family:var(--f2);font-size:10px;font-weight:500;
+  letter-spacing:.06em;
+}
+.badge-ACUMULACION {background:var(--acumg);color:var(--acum);}
+.badge-ALCISTA_A   {background:var(--alcag);color:var(--alca);}
+.badge-ALCISTA_B   {background:var(--alcbg);color:var(--alcb);}
+.badge-DISTRIBUCION{background:var(--distg);color:var(--dist);}
+.badge-BAJISTA     {background:var(--bajg); color:var(--baj);}
+.badge-ALCISTA     {background:var(--alcag);color:var(--alca);}
+.badge-LATERAL     {background:var(--latg); color:var(--lat);}
+
+/* Grid de régimen */
+.regime-grid{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:14px;margin-bottom:20px;
+}
+
+/* Grid de señales núcleo */
+.signal-cards-grid{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:14px;margin-bottom:24px;
+}
+
+/* Placeholder */
+.placeholder{
+  display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  min-height:300px;gap:12px;
+  color:var(--t3);
+}
+.placeholder i{font-size:48px;opacity:.3;}
+.placeholder p{font-size:13px;}
+
+/* Señal row en cards de señales */
+.signal-row{
+  display:flex;justify-content:space-between;
+  align-items:center;
+  padding:6px 0;
+  border-bottom:0.5px solid var(--w1);
+}
+.signal-row:last-child{border-bottom:none;}
+
+/* Ganadoras/Perdedoras grid */
+.market-gl-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:14px;margin-bottom:14px;
+}
+
+/* Responsive mobile */
+@media(max-width:640px){
+  .regime-grid{grid-template-columns:1fr !important;}
+  .signal-cards-grid{grid-template-columns:1fr !important;}
+  .market-gl-grid{grid-template-columns:1fr !important;}
+}

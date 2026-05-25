@@ -1,0 +1,3 @@
+const WatchlistScreen = {
+  onEnter() {},
+};

@@ -1,0 +1,54 @@
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+:root{
+  /* Stone Dark */
+  --bg:#0F0E0D;
+  --c1:#1A1917;
+  --c2:#221F1D;
+  --c3:#2C2926;
+  --w1:#2C2926;
+  --w2:#352F2B;
+  --w3:#3D3733;
+  --t1:#F5F0EB;
+  --t2:#C4BAB2;
+  --t3:#78716C;
+  --t4:#4A4540;
+
+  /* Colores de régimen */
+  --acum:#2563EB;  --acumg:rgba(37,99,235,.15);
+  --alca:#56A14F;  --alcag:rgba(86,161,79,.15);
+  --alcb:#B47514;  --alcbg:rgba(180,117,20,.15);
+  --dist:#D86326;  --distg:rgba(216,99,38,.15);
+  --baj:#D93B3B;   --bajg:rgba(217,59,59,.15);
+  --lat:#78716C;   --latg:rgba(120,113,108,.15);
+
+  /* Colores de temporalidad (bordes de cards) */
+  --largo-color:#2563EB;
+  --medio-color:#56A14F;
+  --corto-color:#B47514;
+
+  /* Alias funcionales (para componentes genéricos) */
+  --cy:#2563EB;  --cyg:rgba(37,99,235,.15);
+  --em:#56A14F;  --emg:rgba(86,161,79,.15);
+  --am:#B47514;  --amg:rgba(180,117,20,.15);
+  --re:#D93B3B;  --reg:rgba(217,59,59,.15);
+  --or:#D86326;
+
+  --f1:'Inter',sans-serif;
+  --f2:'IBM Plex Mono',monospace;
+  --f3:'Georgia',serif;
+  --radius:10px;--radius-s:6px;
+  --nav-h:52px;--bot-h:60px;
+}
+
+html,body{
+  height:100%;
+  font-family:var(--f1);
+  font-size:14px;
+  background:var(--bg);
+  color:var(--t1);
+  -webkit-font-smoothing:antialiased;
+}
+
+button{font-family:var(--f1);cursor:pointer;}
+a{color:inherit;text-decoration:none;}

@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>AXIOM</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+  <link rel="stylesheet" href="/static/css/base.css">
+  <link rel="stylesheet" href="/static/css/layout.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body>
+
+<nav id="nav">
+  <div id="nav-inner">
+    <span class="nav-logo">AXIOM</span>
+    <button class="nav-btn" data-screen="regime"    onclick="Router.go('regime')">
+      <i class="ti ti-chart-bar" aria-hidden="true"></i> Régimen
+    </button>
+    <button class="nav-btn" data-screen="watchlist" onclick="Router.go('watchlist')">
+      <i class="ti ti-list" aria-hidden="true"></i> Watchlist
+    </button>
+    <button class="nav-btn" data-screen="charts"    onclick="Router.go('charts')">
+      <i class="ti ti-chart-candle" aria-hidden="true"></i> Gráficos
+    </button>
+    <button class="nav-btn" data-screen="news"      onclick="Router.go('news')">
+      <i class="ti ti-news" aria-hidden="true"></i> Noticias
+    </button>
+    <button class="nav-btn" data-screen="bot"       onclick="Router.go('bot')">
+      <i class="ti ti-robot" aria-hidden="true"></i> Bot
+    </button>
+  </div>
+</nav>
+
+<nav id="botnav">
+  <button class="bot-btn" data-screen="regime"    onclick="Router.go('regime')">
+    <i class="ti ti-chart-bar" aria-hidden="true"></i> Régimen
+  </button>
+  <button class="bot-btn" data-screen="watchlist" onclick="Router.go('watchlist')">
+    <i class="ti ti-list" aria-hidden="true"></i> Watchlist
+  </button>
+  <button class="bot-btn" data-screen="charts"    onclick="Router.go('charts')">
+    <i class="ti ti-chart-candle" aria-hidden="true"></i> Gráficos
+  </button>
+  <button class="bot-btn" data-screen="news"      onclick="Router.go('news')">
+    <i class="ti ti-news" aria-hidden="true"></i> Noticias
+  </button>
+  <button class="bot-btn" data-screen="bot"       onclick="Router.go('bot')">
+    <i class="ti ti-robot" aria-hidden="true"></i> Bot
+  </button>
+</nav>
+
+<main id="app">
+  <div id="app-inner">
+    <div id="screen-regime"    class="screen"></div>
+    <div id="screen-watchlist" class="screen"><div class="placeholder"><i class="ti ti-list" aria-hidden="true"></i><p>Watchlist — próximamente</p></div></div>
+    <div id="screen-charts"    class="screen"><div class="placeholder"><i class="ti ti-chart-candle" aria-hidden="true"></i><p>Gráficos — próximamente</p></div></div>
+    <div id="screen-news"      class="screen"><div class="placeholder"><i class="ti ti-news" aria-hidden="true"></i><p>Noticias — próximamente</p></div></div>
+    <div id="screen-bot"       class="screen"><div class="placeholder"><i class="ti ti-robot" aria-hidden="true"></i><p>Bot — próximamente</p></div></div>
+  </div>
+</main>
+
+<script src="/static/js/api.js"></script>
+<script src="/static/js/router.js"></script>
+<script src="/static/js/screens/market.js"></script>
+<script src="/static/js/screens/watchlist.js"></script>
+<script src="/static/js/screens/charts.js"></script>
+<script src="/static/js/screens/news.js"></script>
+<script src="/static/js/screens/bot.js"></script>
+<script src="/static/js/screens/regime.js"></script>
+<script src="/static/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,3 @@
+const Screen = {
+  onEnter() {},
+};
