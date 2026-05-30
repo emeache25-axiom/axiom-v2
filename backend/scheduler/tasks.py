@@ -14,6 +14,28 @@ logger = logging.getLogger(__name__)
 _scheduler: AsyncIOScheduler | None = None
 
 
+async def _run_sync_prices(pool) -> None:
+    """Tarea periódica: sincroniza precios de coins."""
+    from backend.services.coins_sync import sync_prices
+    try:
+        logger.info("[scheduler] Sincronizando precios de coins...")
+        result = await sync_prices(pool)
+        logger.info(f"[scheduler] Sync precios OK: {result['updated']} coins")
+    except Exception as exc:
+        logger.error(f"[scheduler] Error en sync precios: {exc}")
+
+
+async def _run_sync_categories(pool) -> None:
+    """Tarea semanal: sincroniza categorías de coins via scraping."""
+    from backend.services.coins_sync import sync_categories
+    try:
+        logger.info("[scheduler] Sincronizando categorías de coins (scraping)...")
+        result = await sync_categories(pool)
+        logger.info(f"[scheduler] Sync categorías OK: {result['updated']} coins, {result['errors']} errores")
+    except Exception as exc:
+        logger.error(f"[scheduler] Error en sync categorías: {exc}")
+
+
 async def _run_snapshot(pool) -> None:
     """Tarea periódica: construye y guarda un snapshot del régimen."""
     from backend.services.snapshot import build_snapshot
