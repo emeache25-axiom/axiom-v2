@@ -1,120 +1,126 @@
 """
-Fuente de datos: CoinGecko.
-
-Responsabilidad única: traer datos crudos de CoinGecko.
+Fuente de datos: CoinGecko (API pública).
+Responsabilidad única: traer datos crudos del mercado.
 NO clasifica, NO calcula régimen.
-
-Provee 3 señales núcleo:
-  - btc_dominance   : % del market cap total que es BTC
-  - vol_mcap_ratio  : ratio volumen / market cap del mercado (en %)
-  - btc_vs_ath      : % de distancia del precio de BTC respecto a su ATH
-
-Ante fallo de la API, las funciones devuelven None.
 """
 import httpx
 
-_BASE = "https://api.coingecko.com/api/v3"
+_BASE    = "https://api.coingecko.com/api/v3"
 _TIMEOUT = 15.0
 
 
 async def fetch_global() -> dict | None:
-    """
-    Trae datos globales del mercado: dominancia BTC y ratio volumen/mcap.
-
-    Returns:
-        dict con:
-          btc_dominance   -> float, ej: 58.3
-          vol_mcap_ratio  -> float, ej: 2.78  (volumen/mcap * 100)
-        O None si falla.
-    """
+    """Datos globales del mercado: dominancia BTC, vol/mcap ratio."""
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             resp = await client.get(f"{_BASE}/global")
             resp.raise_for_status()
             data = resp.json().get("data", {})
-
-        btc_dom = data["market_cap_percentage"]["btc"]
-        total_mcap = data["total_market_cap"]["usd"]
-        total_vol = data["total_volume"]["usd"]
-
-        if total_mcap <= 0:
-            return None
-        vol_mcap_ratio = (total_vol / total_mcap) * 100
-
-        return {
-            "btc_dominance": float(btc_dom),
-            "vol_mcap_ratio": float(vol_mcap_ratio),
-        }
-    except (httpx.HTTPError, KeyError, ValueError, ZeroDivisionError) as exc:
+        btc_dom      = data.get("market_cap_percentage", {}).get("btc", 0)
+        total_mcap   = data.get("total_market_cap", {}).get("usd", 0)
+        total_vol    = data.get("total_volume", {}).get("usd", 0)
+        vol_mcap     = (total_vol / total_mcap * 100) if total_mcap > 0 else 0
+        return {"btc_dominance": btc_dom, "vol_mcap_ratio": vol_mcap}
+    except (httpx.HTTPError, ValueError, KeyError) as exc:
         print(f"[coingecko] fetch_global fallo: {exc}")
         return None
 
 
 async def fetch_btc_vs_ath() -> float | None:
-    """
-    Trae el % de distancia del precio de BTC respecto a su ATH.
-
-    Returns:
-        float negativo o cero, ej: -39.1 (BTC está 39.1% por debajo del ATH).
-        O None si falla.
-    """
+    """Distancia del precio actual de BTC a su ATH (en %)."""
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             resp = await client.get(
                 f"{_BASE}/coins/bitcoin",
-                params={
-                    "localization": "false",
-                    "tickers": "false",
-                    "market_data": "true",
-                    "community_data": "false",
-                    "developer_data": "false",
-                },
+                params={"localization":"false","tickers":"false",
+                        "market_data":"true","community_data":"false",
+                        "developer_data":"false"}
             )
             resp.raise_for_status()
             data = resp.json()
-
-        # ath_change_percentage ya es el % de distancia al ATH, calculado por CoinGecko
-        pct = data["market_data"]["ath_change_percentage"]["usd"]
-        return float(pct)
-    except (httpx.HTTPError, KeyError, ValueError) as exc:
+        price = data["market_data"]["current_price"]["usd"]
+        ath   = data["market_data"]["ath"]["usd"]
+        return (price - ath) / ath * 100 if ath else None
+    except (httpx.HTTPError, ValueError, KeyError) as exc:
         print(f"[coingecko] fetch_btc_vs_ath fallo: {exc}")
         return None
 
 
-async def ping() -> bool:
-    """Verifica que CoinGecko responde. Para health checks."""
-    try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            resp = await client.get(f"{_BASE}/ping")
-            resp.raise_for_status()
-        return True
-    except httpx.HTTPError:
-        return False
-
-
 async def fetch_top_coins(limit: int = 50) -> list[dict] | None:
-    """
-    Trae las top N cryptos por market cap desde CoinGecko.
-    Incluye precio, variación 24h, market cap y categoría.
-
-    Returns:
-        Lista de dicts con datos de cada crypto, o None si falla.
-    """
+    """Top N cryptos por market cap."""
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             resp = await client.get(
                 f"{_BASE}/coins/markets",
                 params={
-                    "vs_currency":            "usd",
-                    "order":                  "market_cap_desc",
-                    "per_page":               limit,
-                    "page":                   1,
-                    "price_change_percentage":"24h",
-                    "sparkline":              "false",
+                    "vs_currency":             "usd",
+                    "order":                   "market_cap_desc",
+                    "per_page":                limit,
+                    "page":                    1,
+                    "price_change_percentage": "24h",
+                    "sparkline":               "false",
                 },
             )
             resp.raise_for_status()
             return resp.json()
     except (httpx.HTTPError, ValueError) as exc:
         print(f"[coingecko] fetch_top_coins fallo: {exc}")
+        return None
+
+
+_categories_cache: list | None = None
+_categories_cache_time: float = 0
+_CATEGORIES_TTL = 1800  # 30 minutos
+
+
+async def fetch_categories() -> list[dict] | None:
+    """
+    Todas las categorías de CoinGecko con market cap activo.
+    Devuelve lista ordenada por market cap DESC.
+    Cache en memoria de 30 minutos.
+    """
+    import time
+    global _categories_cache, _categories_cache_time
+
+    now = time.time()
+    if _categories_cache and (now - _categories_cache_time) < _CATEGORIES_TTL:
+        return _categories_cache
+
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            resp = await client.get(f"{_BASE}/coins/categories")
+            resp.raise_for_status()
+            cats = resp.json()
+        active = [c for c in cats if c.get("market_cap") and c["market_cap"] > 0]
+        active.sort(key=lambda x: x.get("market_cap", 0), reverse=True)
+        _categories_cache      = active
+        _categories_cache_time = now
+        return active
+    except (httpx.HTTPError, ValueError) as exc:
+        print(f"[coingecko] fetch_categories fallo: {exc}")
+        return _categories_cache or None  # devolver cache viejo si hay
+
+
+async def fetch_coins_page(page: int = 1, per_page: int = 25) -> list[dict] | None:
+    """
+    Trae una página de cryptos ordenadas por market cap.
+    Incluye cambio 7d además del 24h.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            resp = await client.get(
+                f"{_BASE}/coins/markets",
+                params={
+                    "vs_currency":             "usd",
+                    "order":                   "market_cap_desc",
+                    "per_page":                per_page,
+                    "page":                    page,
+                    "price_change_percentage": "24h,7d",
+                    "sparkline":               "true",
+                },
+            )
+            resp.raise_for_status()
+            return resp.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        print(f"[coingecko] fetch_coins_page fallo: {exc}")
         return None

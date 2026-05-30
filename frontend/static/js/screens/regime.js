@@ -2,7 +2,6 @@ const RegimeScreen = {
   activeTab: 'regime',
   regimeLoaded: false,
   marketLoaded: false,
-  capitalLoaded: false,
 
   onEnter() {
     const el = document.getElementById('screen-regime');
@@ -28,25 +27,19 @@ const RegimeScreen = {
       <button class="sub-tab" data-tab="market" onclick="RegimeScreen._activateTab('market')">
         <i class="ti ti-world" aria-hidden="true"></i> Mapa del mercado
       </button>
-      <button class="sub-tab" data-tab="capital" onclick="RegimeScreen._activateTab('capital')">
-        <i class="ti ti-adjustments" aria-hidden="true"></i> Capital
-      </button>
     </div>
     <div id="sub-regime"></div>
-    <div id="sub-market" style="display:none;"></div>
-    <div id="sub-capital" style="display:none;"></div>`;
+    <div id="sub-market" style="display:none;"></div>`;
   },
 
   _activateTab(tab) {
     this.activeTab = tab;
     document.querySelectorAll('.sub-tab').forEach(b =>
       b.classList.toggle('active', b.dataset.tab === tab));
-    document.getElementById('sub-regime').style.display  = tab==='regime'  ? '' : 'none';
-    document.getElementById('sub-market').style.display  = tab==='market'  ? '' : 'none';
-    document.getElementById('sub-capital').style.display = tab==='capital' ? '' : 'none';
-    if (tab==='regime'  && !this.regimeLoaded)  this._loadRegime();
-    if (tab==='market'  && !this.marketLoaded)  this._loadMarket();
-    if (tab==='capital' && !this.capitalLoaded) this._loadCapital();
+    document.getElementById('sub-regime').style.display = tab==='regime' ? '' : 'none';
+    document.getElementById('sub-market').style.display = tab==='market' ? '' : 'none';
+    if (tab==='regime' && !this.regimeLoaded) this._loadRegime();
+    if (tab==='market' && !this.marketLoaded) this._loadMarket();
   },
 
   async _loadRegime() {
@@ -55,23 +48,14 @@ const RegimeScreen = {
     try {
       const data = await API.getLatestRegime();
       const ts = new Date(data.created_at).toLocaleString('es-AR',{dateStyle:'short',timeStyle:'short'});
-      const price = data.btc_price
-        ? `$${Number(data.btc_price).toLocaleString('es-AR')}` : '—';
-      document.getElementById('regime-ts').textContent = `BTC ${price} · ${ts}`;
+      document.getElementById('regime-ts').textContent = ts;
       el.innerHTML = this._renderRegime(data);
       this.regimeLoaded = true;
-    } catch(e) {
-      el.innerHTML = `<div class="placeholder"><i class="ti ti-alert-circle"></i><p>Error al cargar</p></div>`;
-    }
-  },
-
-  async _loadCapital() {
-    const el = document.getElementById('sub-capital');
-    el.innerHTML = `<div class="placeholder"><i class="ti ti-refresh"></i><p>Cargando...</p></div>`;
-    try {
-      const data = await API.getCapitalSuggestion();
-      el.innerHTML = CapitalScreen.render(data);
-      this.capitalLoaded = true;
+      // Cargar capital en segundo plano
+      this._renderCapital().then(html => {
+        const cap = document.getElementById('capital-section');
+        if (cap && html) cap.innerHTML = html;
+      });
     } catch(e) {
       el.innerHTML = `<div class="placeholder"><i class="ti ti-alert-circle"></i><p>Error al cargar</p></div>`;
     }
@@ -79,14 +63,12 @@ const RegimeScreen = {
 
   async _loadMarket() {
     const el = document.getElementById('sub-market');
-    el.innerHTML = `<div class="placeholder"><i class="ti ti-refresh"></i><p>Cargando mercado...</p></div>`;
-    try {
-      const data = await API.getMarketOverview();
-      el.innerHTML = MarketScreen.render(data);
-      this.marketLoaded = true;
-    } catch(e) {
-      el.innerHTML = `<div class="placeholder"><i class="ti ti-alert-circle"></i><p>Error al cargar</p></div>`;
-    }
+    el.innerHTML = MarketScreen.renderShell();
+    this.marketLoaded = true;
+    // Esperar a que el DOM procese el shell antes de cargar datos
+    requestAnimationFrame(() => {
+      MarketScreen.switchView('general');
+    });
   },
 
   // Config por temporalidad (borde + ícono)
@@ -262,6 +244,15 @@ const RegimeScreen = {
     </div>`;
   },
 
+  async _renderCapital() {
+    try {
+      const data = await API.getCapitalSuggestion();
+      return CapitalScreen.render(data);
+    } catch(e) {
+      return '';
+    }
+  },
+
   _renderRegime(data) {
     return `
     <div class="regime-grid">
@@ -269,6 +260,11 @@ const RegimeScreen = {
       ${this._renderRegimeCard('medio', data.regimes.medio)}
       ${this._renderRegimeCard('corto', data.regimes.corto)}
     </div>
-    ${this._renderSignalCards(data.signals)}`;
+    ${this._renderSignalCards(data.signals)}
+    <div id="capital-section" style="margin-top:8px;">
+      <div class="placeholder" style="min-height:80px;">
+        <i class="ti ti-refresh" style="font-size:24px;"></i>
+      </div>
+    </div>`;
   },
 };

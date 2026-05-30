@@ -17,7 +17,6 @@ const NewsScreen = {
       ]);
       this.sources = sourcesData.sources;
       el.innerHTML = this.render(newsData);
-      requestAnimationFrame(() => this._adjustFontSizes());
       this.loaded = true;
     } catch(e) {
       el.innerHTML = `<div class="placeholder"><i class="ti ti-alert-circle"></i><p>Error al cargar noticias</p></div>`;
@@ -32,7 +31,6 @@ const NewsScreen = {
     try {
       const data = await API.getNews(60, source === 'Todas' ? null : source);
       grid.innerHTML = this._renderGrid(data.articles);
-      requestAnimationFrame(() => this._adjustFontSizes());
       document.querySelectorAll('.news-src-btn').forEach(b =>
         b.classList.toggle('active', b.dataset.source === source));
     } catch(e) {
@@ -52,44 +50,13 @@ const NewsScreen = {
     return '/static/img/news-default.svg';
   },
 
-  _fontSize(title) {
-    return '18px'; // placeholder, se recalcula en _adjustFontSizes
-  },
 
-  _adjustFontSizes() {
-    document.querySelectorAll('.news-card').forEach(card => {
-      const titleEl = card.querySelector('.news-title');
-      if (!titleEl) return;
-      const cardW   = card.offsetWidth  - 28; // padding 14px x2
-      const cardH   = card.offsetHeight - 28;
-      const text    = titleEl.textContent.trim();
-      const chars   = text.length;
-      const lines   = 4; // max lines
-      const charW   = 0.52; // ratio ancho/alto de un caracter Inter
-      // Area disponible = cardW * cardH * 0.75
-      // Area texto = chars * fontSize * fontSize * charW * lines
-      // Despejando fontSize:
-      const area    = cardW * cardH * 0.75;
-      let fs = Math.sqrt(area / (chars * charW));
-      // Limitar: min 12px, max 28px
-      fs = Math.min(28, Math.max(12, Math.round(fs)));
-      // Verificar que no desborde en altura
-      const lineH   = fs * 1.4;
-      if (lineH * lines > cardH * 0.85) {
-        fs = Math.floor((cardH * 0.85) / (lines * 1.4));
-      }
-      titleEl.style.fontSize = fs + 'px';
-    });
-  },
 
   _renderCard(a) {
     const fallback       = this._fallbackImg();
     const hasImage       = !!a.image;
     const imgSrc         = a.image || fallback;
     const time           = this._timeAgo(a.published);
-    const titleSize      = this._fontSize(a.title);
-    const titleClamp     = '4';
-    const titleAlign     = 'left';
     const justifyContent = 'flex-end';
     const padding        = '14px';
     return `
@@ -129,9 +96,9 @@ const NewsScreen = {
             </div>
             <!-- Título -->
             <div class="news-title"
-                 style="font-size:${titleSize};font-weight:600;color:#F5F0EB;line-height:1.4;
-                        margin-bottom:6px;text-align:${titleAlign};
-                        display:-webkit-box;-webkit-line-clamp:${titleClamp};
+                 style="font-size:14px;font-weight:600;color:#F5F0EB;line-height:1.4;
+                        margin-bottom:6px;
+                        display:-webkit-box;-webkit-line-clamp:4;
                         -webkit-box-orient:vertical;overflow:hidden;">
               ${a.title}
             </div>

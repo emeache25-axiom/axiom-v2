@@ -99,3 +99,20 @@
 .news-card-link:hover .news-card{
   opacity:.8;
 }
+
+@media(max-width:640px){
+  .news-title{font-size:16px !important;}
+}
+
+/* Tooltip info */
+.info-wrap:hover .info-tooltip,
+.info-wrap.active .info-tooltip{
+  display:block !important;
+}
+
+@media(max-width:640px){
+  .market-mobile-tabs{display:flex !important;}
+  .market-desktop-layout{display:block !important;}
+  .market-desktop-layout > #market-sidebar{display:none !important;}
+  .market-desktop-layout > #market-content{width:100% !important;}
+}

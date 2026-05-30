@@ -159,29 +159,18 @@ const CapitalScreen = {
   },
 
   render(data) {
-    const ts    = new Date(data.based_on.created_at).toLocaleString('es-AR',{
-      dateStyle:'short', timeStyle:'short'
-    });
-    const price = data.based_on.btc_price
-      ? `$${Number(data.based_on.btc_price).toLocaleString('es-AR')}` : '—';
     const rLargo = this._regimeLabel(data.regimes.largo.regime);
     const rColor = this._regimeColor(data.regimes.largo.regime);
 
     return `
     <div style="max-width:700px;margin:0 auto;">
-      <div style="display:flex;justify-content:space-between;align-items:baseline;
-                  margin-bottom:20px;flex-wrap:wrap;gap:8px;">
-        <div>
-          <div style="font-size:12px;color:var(--t3);margin-bottom:4px;">
-            Basado en régimen largo
-          </div>
-          <div style="font-size:22px;font-weight:700;color:${rColor};">
-            ${rLargo}
-          </div>
+      <div style="margin-bottom:20px;">
+        <div style="font-size:12px;color:var(--t3);margin-bottom:4px;">
+          Basado en régimen largo
         </div>
-        <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--t3);">
-          BTC ${price} · ${ts}
-        </span>
+        <div style="font-size:22px;font-weight:700;color:${rColor};">
+          ${rLargo}
+        </div>
       </div>
       ${this._renderAllocation(data.allocation)}
       ${this._renderContext(data.context, data.regimes.largo.regime)}
