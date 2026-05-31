@@ -15,6 +15,7 @@ import httpx
 import asyncpg
 from bs4 import BeautifulSoup
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
 _BASE    = "https://api.coingecko.com/api/v3"
@@ -296,6 +297,19 @@ async def sync_categories(pool: asyncpg.Pool) -> dict:
                 if resp.status_code != 200:
                     errors += 1
                     await asyncio.sleep(1)
+                    continue
+
+                # Detectar redirect a homepage — coin no tiene página propia
+                final_url = str(resp.url)
+                if final_url.rstrip('/') == 'https://www.coingecko.com':
+                    logger.warning(f"[coins_sync] {coin_id} redirige a homepage, marcando como 'otros'")
+                    async with pool.acquire() as conn:
+                        await conn.execute("""
+                            UPDATE coins SET cg_cats='[]', supercat='otros', updated_at=now()
+                            WHERE id=$1
+                        """, coin_id)
+                    updated += 1
+                    await asyncio.sleep(1.2)
                     continue
 
                 soup     = BeautifulSoup(resp.text, "html.parser")
