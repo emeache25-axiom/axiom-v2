@@ -9,8 +9,8 @@ const API = {
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     return r.json();
   },
-  async getMarketOverview() {
-    const r = await fetch('/api/market/overview');
+  async getMarketOverview(minMcap=100000000) {
+    const r = await fetch(`/api/market/overview?min_mcap=${minMcap}`);
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     return r.json();
   },

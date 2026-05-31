@@ -8,10 +8,10 @@ const MarketScreen = {
   coinsLoading: false,
   drillLimit:   10,
   drillCache:   {},
+  minMcap:      100000000,
 
   onEnter() {},
 
-  // ── Utilidades ──────────────────────────────────────────────────────────
   _fmt(n) {
     if (n===null||n===undefined) return '—';
     if (n>=1e12) return `$${(n/1e12).toFixed(2)}T`;
@@ -81,14 +81,12 @@ const MarketScreen = {
     </div>`;
   },
 
-  // ── Layout principal ────────────────────────────────────────────────────
   renderShell() {
     const views = [
       {id:'general',    icon:'ti-layout-grid',    label:'General'},
       {id:'categories', icon:'ti-chart-pie',       label:'Categorías'},
       {id:'networks',   icon:'ti-topology-star-3', label:'Redes'},
     ];
-
     const sidebarBtns = views.map(v => `
       <button onclick="MarketScreen.switchView('${v.id}')"
         id="market-nav-${v.id}" class="market-nav-btn"
@@ -99,7 +97,6 @@ const MarketScreen = {
         <i class="ti ${v.icon}" style="font-size:15px;" aria-hidden="true"></i>
         ${v.label}
       </button>`).join('');
-
     const mobileTabs = views.map(v => `
       <button onclick="MarketScreen.switchView('${v.id}')"
         id="market-tab-${v.id}" class="market-nav-btn"
@@ -111,7 +108,6 @@ const MarketScreen = {
         <i class="ti ${v.icon}" style="font-size:13px;" aria-hidden="true"></i>
         ${v.label}
       </button>`).join('');
-
     return `
     <div class="market-mobile-tabs"
          style="display:none;border-bottom:1px solid var(--w1);margin-bottom:16px;">
@@ -139,8 +135,8 @@ const MarketScreen = {
       }
       const tab = document.getElementById(`market-tab-${v}`);
       if (tab) {
-        tab.style.color            = v===view ? '#F5F0EB'     : 'var(--t3)';
-        tab.style.borderBottomColor = v===view ? '#F5F0EB'    : 'transparent';
+        tab.style.color             = v===view ? '#F5F0EB'  : 'var(--t3)';
+        tab.style.borderBottomColor = v===view ? '#F5F0EB'  : 'transparent';
       }
     });
     this._loadView(view);
@@ -159,10 +155,17 @@ const MarketScreen = {
     await this._loadView(view);
   },
 
+  async _changeMcap(value) {
+    this.minMcap           = value;
+    this.cache.general     = null;
+    this.cacheTime.general = null;
+    this.loaded.general    = false;
+    await this._loadView('general');
+  },
+
   async _loadView(view) {
     const el = document.getElementById('market-content');
     if (!el) return;
-
     if (this._isCacheValid(view)) {
       el.innerHTML = this.cache[view];
       if (view === 'general') {
@@ -170,12 +173,11 @@ const MarketScreen = {
       }
       return;
     }
-
     el.innerHTML = `<div class="placeholder"><i class="ti ti-refresh"></i><p>Cargando...</p></div>`;
     try {
       let html = '';
       if (view === 'general') {
-        const data = await API.getMarketOverview();
+        const data = await API.getMarketOverview(this.minMcap);
         html = this._renderGeneral(data);
       } else if (view === 'categories') {
         const data = await API.getMarketCategories();
@@ -197,7 +199,6 @@ const MarketScreen = {
     }
   },
 
-  // ── Vista General ────────────────────────────────────────────────────────
   _coinRow(c) {
     return `
     <div style="display:flex;align-items:center;justify-content:space-between;
@@ -217,18 +218,17 @@ const MarketScreen = {
 
   _sparkline(prices, change7d) {
     if (!prices || prices.length < 2) return '<span style="color:var(--t3);font-size:10px;">—</span>';
-    const color  = change7d >= 0 ? '#56A14F' : '#D93B3B';
-    const min    = Math.min(...prices);
-    const max    = Math.max(...prices);
-    const range  = max - min || 1;
+    const color = change7d >= 0 ? '#56A14F' : '#D93B3B';
+    const min   = Math.min(...prices);
+    const max   = Math.max(...prices);
+    const range = max - min || 1;
     const w = 80, h = 32;
-    const pts = prices.map((p, i) => {
-      const x = (i / (prices.length - 1)) * w;
-      const y = h - ((p - min) / range) * h;
+    const pts = prices.map((p,i) => {
+      const x = (i/(prices.length-1))*w;
+      const y = h - ((p-min)/range)*h;
       return `${x.toFixed(1)},${y.toFixed(1)}`;
     }).join(' ');
-    return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"
-      style="display:block;overflow:visible;">
+    return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="display:block;">
       <polyline points="${pts}" fill="none" stroke="${color}"
         stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
     </svg>`;
@@ -269,34 +269,47 @@ const MarketScreen = {
     if (this.coinsLoading) return;
     this.coinsLoading = true;
     this.coinsPage    = page;
-
     const tbody = document.getElementById('coins-tbody');
     const info  = document.getElementById('coins-page-info');
     if (!tbody) { this.coinsLoading = false; return; }
-
-    // Fade out suave
     tbody.style.opacity    = '0.3';
     tbody.style.transition = 'opacity .15s';
-
     try {
       const data = await API.getCoins(page, 25);
-      tbody.innerHTML      = data.coins.map(c => this._coinsTableRow(c)).join('');
-      tbody.style.opacity  = '1';
+      tbody.innerHTML     = data.coins.map(c => this._coinsTableRow(c)).join('');
+      tbody.style.opacity = '1';
       if (info) info.textContent = `Página ${page}`;
       const prev = document.getElementById('coins-prev');
       const next = document.getElementById('coins-next');
       if (prev) prev.disabled = page <= 1;
       if (next) next.disabled = data.coins.length < 25;
     } catch(e) {
-      tbody.innerHTML     = `<div style="padding:20px;color:var(--re);font-size:13px;">
-        Error al cargar</div>`;
+      tbody.innerHTML     = `<div style="padding:20px;color:var(--re);font-size:13px;">Error al cargar</div>`;
       tbody.style.opacity = '1';
     }
     this.coinsLoading = false;
   },
 
   _renderGeneral(data) {
+    const mcapOptions = [
+      {value: 0,           label: 'Sin filtro'},
+      {value: 10000000,    label: '> $10M'},
+      {value: 100000000,   label: '> $100M'},
+      {value: 1000000000,  label: '> $1B'},
+      {value: 10000000000, label: '> $10B'},
+    ].map(o => `<option value="${o.value}" ${o.value===this.minMcap?'selected':''}>${o.label}</option>`).join('');
+
     return this._refreshBtn('general') + `
+    <div style="display:flex;align-items:center;justify-content:flex-end;
+                gap:8px;margin-bottom:12px;">
+      <span style="font-family:var(--f2);font-size:11px;color:var(--t3);">Market cap mín.</span>
+      <select onchange="MarketScreen._changeMcap(parseInt(this.value))"
+        style="padding:4px 8px;border-radius:4px;border:0.5px solid var(--w1);
+               background:var(--c2);color:var(--t1);font-size:12px;
+               font-family:var(--f2);cursor:pointer;">
+        ${mcapOptions}
+      </select>
+    </div>
     <div class="market-gl-grid" style="margin-bottom:14px;">
       <div class="card" style="border-top:2px solid #56A14F;border-left:1px solid #56A14F40;
                                 border-right:1px solid #56A14F40;border-bottom:1px solid #56A14F40;">
@@ -312,10 +325,8 @@ const MarketScreen = {
     <div class="card" style="border-top:2px solid #B47514;border-left:1px solid #B4751440;
                               border-right:1px solid #B4751440;border-bottom:1px solid #B4751440;">
       ${this._sectionHeader('ti-list-numbers','Por capitalización','#B47514')}
-      <!-- Scroll container para mobile -->
       <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
         <div style="min-width:620px;">
-          <!-- Header -->
           <div style="display:grid;grid-template-columns:36px minmax(140px,1fr) 90px 65px 65px 80px 90px 90px;
                       gap:6px;font-family:var(--f2);font-size:9px;color:var(--t3);
                       text-transform:uppercase;letter-spacing:.08em;
@@ -356,20 +367,14 @@ const MarketScreen = {
     </div>`;
   },
 
-  // ── Drill-down de supercategoría ────────────────────────────────────────
   async _loadDrilldown(supercatId) {
     const el = document.getElementById('market-content');
     if (!el) return;
-
-    // Cache key incluye el límite para que cambiar el límite recargue
     const cacheKey = `${supercatId}_${this.drillLimit}`;
-
-    // Usar cache si existe
     if (this.drillCache[cacheKey]) {
       el.innerHTML = this.drillCache[cacheKey];
       return;
     }
-
     el.innerHTML = `<div class="placeholder"><i class="ti ti-refresh"></i><p>Cargando...</p></div>`;
     try {
       const data = await API.getSupercatCoins(supercatId, this.drillLimit);
@@ -385,9 +390,8 @@ const MarketScreen = {
   },
 
   _renderDrilldown(data, supercatId) {
-    const sc    = data.supercat;
-    const coins = data.coins;
-    const rows  = coins.map((c,i) => `
+    const sc   = data.supercat;
+    const rows = data.coins.map((c,i) => `
     <div style="display:grid;grid-template-columns:36px minmax(140px,1fr) 90px 65px 65px 80px 90px 90px;
                 gap:6px;align-items:center;padding:8px 0;
                 border-bottom:0.5px solid var(--w1);">
@@ -418,13 +422,11 @@ const MarketScreen = {
                    text-align:right;">${this._fmt(c.volume_24h)}</span>
     </div>`).join('');
 
-    // Selector de límite
-    const limitOptions = [10, 20, 30, 50].map(n =>
+    const limitOptions = [10,20,30,50].map(n =>
       `<option value="${n}" ${n===this.drillLimit?'selected':''}>${n}</option>`
     ).join('');
 
     return `
-    <!-- Header con volver -->
     <div style="display:flex;align-items:center;justify-content:space-between;
                 margin-bottom:16px;flex-wrap:wrap;gap:8px;">
       <div style="display:flex;align-items:center;gap:10px;">
@@ -442,10 +444,9 @@ const MarketScreen = {
           <span style="font-size:16px;font-weight:600;color:#F5F0EB;">${sc.label}</span>
         </div>
       </div>
-      <!-- Selector de límite -->
       <div style="display:flex;align-items:center;gap:8px;">
         <span style="font-family:var(--f2);font-size:11px;color:var(--t3);">Mostrar</span>
-        <select onchange="MarketScreen.drillLimit=parseInt(this.value);MarketScreen._loadDrilldown('${supercatId}')"
+        <select onchange="MarketScreen.drillLimit=parseInt(this.value);MarketScreen.drillCache={};MarketScreen._loadDrilldown('${supercatId}')"
           style="padding:4px 8px;border-radius:4px;border:0.5px solid var(--w1);
                  background:var(--c2);color:var(--t1);font-size:12px;
                  font-family:var(--f2);cursor:pointer;">
@@ -454,15 +455,11 @@ const MarketScreen = {
         <span style="font-family:var(--f2);font-size:11px;color:var(--t3);">cryptos</span>
       </div>
     </div>
-
-    <!-- Info de la categoría -->
     <p style="font-size:12px;color:var(--t3);line-height:1.5;margin-bottom:16px;
               padding:10px 12px;background:var(--c2);border-radius:var(--radius-s);
               border-left:3px solid ${sc.color};">
       ${sc.info}
     </p>
-
-    <!-- Tabla con scroll horizontal -->
     <div class="card" style="border-top:2px solid ${sc.color};
                               border-left:1px solid ${sc.color}40;
                               border-right:1px solid ${sc.color}40;
@@ -474,8 +471,7 @@ const MarketScreen = {
                       gap:6px;font-family:var(--f2);font-size:9px;color:var(--t3);
                       text-transform:uppercase;letter-spacing:.08em;
                       padding-bottom:6px;border-bottom:1px solid var(--w1);">
-            <span style="text-align:right;position:sticky;left:0;
-                         background:var(--c1);z-index:1;">#</span>
+            <span style="text-align:right;position:sticky;left:0;background:var(--c1);z-index:1;">#</span>
             <span style="position:sticky;left:36px;background:var(--c1);z-index:1;">Activo</span>
             <span style="text-align:right;">Precio</span>
             <span style="text-align:right;">24h</span>
@@ -490,7 +486,6 @@ const MarketScreen = {
     </div>`;
   },
 
-  // ── Vista Categorías ─────────────────────────────────────────────────────
   _renderCategories(data) {
     const max  = data.categories[0]?.pct || 1;
     const rows = data.categories.map(c => {
@@ -505,7 +500,9 @@ const MarketScreen = {
                   style="font-size:13px;font-weight:500;color:#F5F0EB;
                          white-space:nowrap;cursor:pointer;transition:color .15s;"
                   onmouseover="this.style.color='${c.color}'"
-                  onmouseout="this.style.color='#F5F0EB'">${c.label} <i class="ti ti-chevron-right" style="font-size:11px;opacity:.5;"></i></span>
+                  onmouseout="this.style.color='#F5F0EB'">
+              ${c.label} <i class="ti ti-chevron-right" style="font-size:11px;opacity:.5;"></i>
+            </span>
             <div style="position:relative;display:inline-flex;" class="info-wrap">
               <i class="ti ti-info-circle"
                  style="font-size:13px;color:var(--t3);cursor:pointer;flex-shrink:0;"
@@ -546,7 +543,6 @@ const MarketScreen = {
     </div>`;
   },
 
-  // ── Vista Redes ──────────────────────────────────────────────────────────
   _renderNetworks(data) {
     const max  = data.networks[0]?.pct || 1;
     const rows = data.networks.map(n => `
