@@ -6,6 +6,11 @@ const Router = {
   },
 
   go(screenId) {
+    // Notificar a la pantalla actual que se va a desactivar
+    if (this.current && window.Screens && window.Screens[this.current]) {
+      window.Screens[this.current].onLeave?.();
+    }
+
     // Desactivar pantallas
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
     document.querySelectorAll('.nav-btn, .bot-btn').forEach(b => b.classList.remove('active'));

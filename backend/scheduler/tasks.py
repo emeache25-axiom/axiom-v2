@@ -77,8 +77,32 @@ def start_scheduler(pool) -> None:
         coalesce=True,            # si se acumularon, ejecutar solo una vez
     )
 
+    # Sync precios cada 6 horas
+    _scheduler.add_job(
+        _run_sync_prices,
+        trigger="interval",
+        hours=6,
+        args=[pool],
+        id="sync_prices_job",
+        name="Sync precios coins",
+        misfire_grace_time=300,
+        coalesce=True,
+    )
+
+    # Sync categorías cada 7 días
+    _scheduler.add_job(
+        _run_sync_categories,
+        trigger="interval",
+        days=7,
+        args=[pool],
+        id="sync_categories_job",
+        name="Sync categorías coins",
+        misfire_grace_time=600,
+        coalesce=True,
+    )
+
     _scheduler.start()
-    logger.info("[scheduler] Scheduler iniciado — snapshot cada 60 minutos")
+    logger.info("[scheduler] Scheduler iniciado — snapshot/60min · precios/6h · categorías/7d")
 
 
 def stop_scheduler() -> None:

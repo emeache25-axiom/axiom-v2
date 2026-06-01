@@ -56,4 +56,53 @@ const API = {
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     return r.json();
   },
+  async getWatchlist() {
+    const r = await fetch('/api/watchlist/');
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  },
+  async getWatchlistPrices() {
+    const r = await fetch('/api/watchlist/prices');
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  },
+  async searchCoins(q, limit=8) {
+    const r = await fetch(`/api/watchlist/search?q=${encodeURIComponent(q)}&limit=${limit}`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  },
+  async addToWatchlist(coinId, exchange='coingecko', notes='') {
+    const r = await fetch('/api/watchlist/', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({coin_id:coinId, exchange, notes}),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  },
+  async updateWatchlistItem(id, data) {
+    const r = await fetch(`/api/watchlist/${id}`, {
+      method: 'PUT',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(data),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  },
+  async getWatchlistSuggested() {
+    const r = await fetch(`/api/watchlist/suggested`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  },
+  async getScreener(params={}) {
+    const qs = new URLSearchParams(params).toString();
+    const r  = await fetch(`/api/watchlist/screener?${qs}`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  },
+  async removeFromWatchlist(id) {
+    const r = await fetch(`/api/watchlist/${id}`, {method:'DELETE'});
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  },
 };
