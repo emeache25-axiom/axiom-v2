@@ -9,16 +9,16 @@ import re
 logger = logging.getLogger(__name__)
 
 RSS_FEEDS = [
-    {"name": "CoinTelegraph",  "url": "https://cointelegraph.es/rss",             "lang": "es", "category": "General"},
-    {"name": "CriptoNoticias", "url": "https://www.criptonoticias.com/feed/",      "lang": "es", "category": "General"},
-    {"name": "DiarioBitcoin",  "url": "https://www.diariobitcoin.com/feed",        "lang": "es", "category": "Bitcoin"},
-    {"name": "Decrypt",        "url": "https://decrypt.co/es/feed",               "lang": "es", "category": "General"},
-    {"name": "Bitcoin.com",    "url": "https://news.bitcoin.com/es/feed/",         "lang": "es", "category": "General"},
-    {"name": "CriptoTendencia",     "url": "https://criptotendencia.com/feed/",            "lang": "es", "category": "General"},
-    {"name": "NewsBTC",        "url": "https://www.newsbtc.com/es/feed/",          "lang": "es", "category": "General"},
-    {"name": "CryptoNews",     "url": "https://criptonews.es/feed/",               "lang": "es", "category": "General"},
-    {"name": "CoinJournal",    "url": "https://coinjournal.net/es/feed/",          "lang": "es", "category": "General"},
-    {"name": "Blog Ethereum",  "url": "https://blog.ethereum.org/es/feed.xml",     "lang": "es", "category": "Ethereum"},
+    {"name": "CoinTelegraph",      "url": "https://cointelegraph.es/rss",                  "lang": "es", "category": "General"},
+    {"name": "DiarioBitcoin",      "url": "https://www.diariobitcoin.com/feed",             "lang": "es", "category": "Bitcoin"},
+    {"name": "Decrypt",            "url": "https://decrypt.co/es/feed",                    "lang": "es", "category": "General"},
+    {"name": "Bitcoin.com",        "url": "https://news.bitcoin.com/es/feed/",              "lang": "es", "category": "General"},
+    {"name": "NewsBTC",            "url": "https://www.newsbtc.com/es/feed/",               "lang": "es", "category": "General"},
+    {"name": "CryptoBriefing",     "url": "https://es.cryptobriefing.com/feed/gn",          "lang": "es", "category": "General"},
+    {"name": "CryptoPotato",       "url": "https://cryptopotato.com/es/feed/",              "lang": "es", "category": "General"},
+    {"name": "AMBCrypto",          "url": "https://es.ambcrypto.com/feed/",                 "lang": "es", "category": "General"},
+    {"name": "CoinTribune",        "url": "https://www.cointribune.com/es/feed/",           "lang": "es", "category": "General"},
+    {"name": "CryptoRo",           "url": "https://crypto.ro/es/feed/",                     "lang": "es", "category": "General"},
 ]
 
 _news_cache = []
@@ -108,15 +108,31 @@ def _extract_image(item, description: str) -> Optional[str]:
         if url and url.startswith("http"):
             return url
 
-    # 3. enclosure
+    # 3. enclosure (cualquier tipo de imagen)
     enc = item.find("enclosure")
     if enc is not None:
         url = enc.get("url", "")
-        t   = enc.get("type", "")
-        if url and "image" in t:
+        if url and url.startswith("http"):
             return url
 
-    # 4. img in description HTML
+    # 4. content:encoded — buscar img src
+    content_ns = {"content": "http://purl.org/rss/1.0/modules/content/"}
+    encoded = item.find("content:encoded", content_ns)
+    if encoded is not None and encoded.text:
+        img_match = re.search(r'<img[^>]+src="([^"]+)"', encoded.text)
+        if img_match:
+            url = img_match.group(1)
+            if url.startswith("http"):
+                return url
+
+    # 5. tag "content" sin namespace (usado por algunos feeds)
+    for child in item:
+        tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
+        if tag == 'content' and child.text and child.text.startswith('http'):
+            if any(ext in child.text.lower() for ext in ['.jpg','.jpeg','.png','.webp','.gif']):
+                return child.text
+
+    # 6. img in description HTML
     img_match = re.search(r'<img[^>]+src="([^"]+)"', description or "")
     if img_match:
         url = img_match.group(1)
