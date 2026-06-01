@@ -65,7 +65,7 @@ const NewsScreen = {
       <div class="news-card">
         <!-- Imagen de fondo con overlay -->
         <div style="position:relative;width:100%;height:100%;min-height:200px;">
-          <img src="${imgSrc}" alt="" loading="lazy"
+          <img src="${imgSrc}" alt="" 
                style="width:100%;height:100%;object-fit:cover;display:block;
                       min-height:200px;"
                onerror="this.src='${fallback}'">

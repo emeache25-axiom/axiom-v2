@@ -15,7 +15,6 @@ RSS_FEEDS = [
     {"name": "Bitcoin.com",        "url": "https://news.bitcoin.com/es/feed/",              "lang": "es", "category": "General"},
     {"name": "NewsBTC",            "url": "https://www.newsbtc.com/es/feed/",               "lang": "es", "category": "General"},
     {"name": "CryptoBriefing",     "url": "https://es.cryptobriefing.com/feed/gn",          "lang": "es", "category": "General"},
-    {"name": "CryptoPotato",       "url": "https://cryptopotato.com/es/feed/",              "lang": "es", "category": "General"},
     {"name": "AMBCrypto",          "url": "https://es.ambcrypto.com/feed/",                 "lang": "es", "category": "General"},
     {"name": "CoinTribune",        "url": "https://www.cointribune.com/es/feed/",           "lang": "es", "category": "General"},
     {"name": "CryptoRo",           "url": "https://crypto.ro/es/feed/",                     "lang": "es", "category": "General"},
