@@ -36,6 +36,32 @@ async def _run_sync_categories(pool) -> None:
         logger.error(f"[scheduler] Error en sync categorías: {exc}")
 
 
+async def _run_ohlcv_incremental(pool) -> None:
+    """Tarea diaria: sync incremental de OHLCV (00:01 GMT)."""
+    from backend.services.ohlcv_sync import sync_incremental
+    try:
+        logger.info("[scheduler] Iniciando sync OHLCV incremental...")
+        result = await sync_incremental(pool)
+        logger.info(f"[scheduler] OHLCV incremental OK: {result['inserted']} filas para {result['date']}, {result['errors']} errores")
+    except Exception as exc:
+        logger.error(f"[scheduler] Error en OHLCV incremental: {exc}")
+
+
+async def _run_ohlcv_full_bg(pool) -> None:
+    """Tarea de arranque: sync completo OHLCV en background (si faltan datos)."""
+    from backend.services.ohlcv_sync import sync_full, get_sync_status
+    try:
+        status = await get_sync_status(pool)
+        if status["coverage_pct"] >= 80:
+            logger.info(f"[scheduler] OHLCV ya tiene {status['coverage_pct']}% cobertura — skip full sync")
+            return
+        logger.info(f"[scheduler] OHLCV cobertura {status['coverage_pct']}% — iniciando sync_full en background")
+        result = await sync_full(pool)
+        logger.info(f"[scheduler] OHLCV sync_full completado: {result['processed']} coins, {result['inserted']} filas")
+    except Exception as exc:
+        logger.error(f"[scheduler] Error en OHLCV sync_full: {exc}")
+
+
 async def _run_snapshot(pool) -> None:
     """Tarea periódica: construye y guarda un snapshot del régimen."""
     from backend.services.snapshot import build_snapshot
@@ -101,8 +127,26 @@ def start_scheduler(pool) -> None:
         coalesce=True,
     )
 
+    # OHLCV incremental — diariamente a las 00:01 GMT
+    _scheduler.add_job(
+        _run_ohlcv_incremental,
+        trigger="cron",
+        hour=0,
+        minute=1,
+        timezone="UTC",
+        args=[pool],
+        id="ohlcv_incremental_job",
+        name="OHLCV sync diario",
+        misfire_grace_time=1800,
+        coalesce=True,
+    )
+
+    # OHLCV full — al arranque, en background, solo si faltan datos
+    import asyncio as _asyncio
+    _asyncio.get_event_loop().create_task(_run_ohlcv_full_bg(pool))
+
     _scheduler.start()
-    logger.info("[scheduler] Scheduler iniciado — snapshot/60min · precios/6h · categorías/7d")
+    logger.info("[scheduler] Scheduler iniciado — snapshot/60min · precios/6h · categorías/7d · ohlcv/00:01GMT")
 
 
 def stop_scheduler() -> None:

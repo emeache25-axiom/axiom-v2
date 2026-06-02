@@ -396,7 +396,16 @@ const WatchlistScreen = {
       });
     } catch(e) {
       if (e.message.includes('409')) {
-        alert(`${name} ya está en tu watchlist`);
+        this._showDialog({
+          icon: '<i class="ti ti-info-circle" style="color:var(--cy);"></i>',
+          title: 'Ya en watchlist',
+          body: `<p style="font-size:13px;color:var(--t2);">
+                   <strong style="color:var(--t1);">${name}</strong> ya está en tu lista de seguimiento.
+                 </p>`,
+          buttons: [
+            { label: 'Entendido', style: 'primary', action: () => this._closeDialog() },
+          ],
+        });
       } else {
         console.error('[quickAdd]', e);
       }
@@ -736,16 +745,50 @@ const WatchlistScreen = {
       <!-- Panel: Screener -->
       <div id="wl-panel-screener" style="display:none;"></div>
 
+      <!-- Modal genérico: confirm / alert / edit -->
+      <div id="wl-dialog" style="display:none;position:fixed;inset:0;z-index:600;
+                                   background:rgba(0,0,0,.75);backdrop-filter:blur(4px);
+                                   align-items:center;justify-content:center;">
+        <div style="background:var(--c1);border:0.5px solid var(--w1);border-radius:14px;
+                    padding:0;width:min(420px,calc(100vw - 32px));
+                    box-shadow:0 24px 60px rgba(0,0,0,.6);">
+          <!-- Header -->
+          <div id="wl-dialog-header"
+               style="padding:18px 20px 0;display:flex;align-items:center;gap:10px;">
+            <span id="wl-dialog-icon" style="font-size:18px;"></span>
+            <span id="wl-dialog-title"
+                  style="font-size:15px;font-weight:600;color:var(--t1);"></span>
+          </div>
+          <!-- Body -->
+          <div id="wl-dialog-body" style="padding:12px 20px 0;"></div>
+          <!-- Footer -->
+          <div id="wl-dialog-footer"
+               style="padding:16px 20px;display:flex;justify-content:flex-end;gap:8px;"></div>
+        </div>
+      </div>
+
       <!-- Modal agregar -->
       <div id="wl-modal" style="display:none;position:fixed;inset:0;z-index:500;
-                                  background:rgba(0,0,0,.7);align-items:center;justify-content:center;">
-        <div style="background:var(--c1);border:0.5px solid var(--w1);border-radius:12px;
-                    padding:24px;width:min(480px,calc(100vw - 32px));max-height:90vh;overflow-y:auto;">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-            <span style="font-size:15px;font-weight:600;color:var(--t1);">Agregar a watchlist</span>
+                                  background:rgba(0,0,0,.75);backdrop-filter:blur(4px);
+                                  align-items:center;justify-content:center;">
+        <div style="background:var(--c1);border:0.5px solid var(--w1);border-radius:14px;
+                    padding:0;width:min(480px,calc(100vw - 32px));max-height:90vh;overflow-y:auto;
+                    box-shadow:0 24px 60px rgba(0,0,0,.6);">
+          <!-- Header del modal -->
+          <div style="display:flex;justify-content:space-between;align-items:center;
+                      padding:18px 20px 0;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <i class="ti ti-plus" style="font-size:15px;color:var(--cy);"></i>
+              <span style="font-size:15px;font-weight:600;color:var(--t1);">Agregar a watchlist</span>
+            </div>
             <button onclick="WatchlistScreen._closeModal()"
-              style="border:none;background:transparent;color:var(--t3);font-size:18px;cursor:pointer;">✕</button>
+              style="border:none;background:var(--c2);color:var(--t3);width:28px;height:28px;
+                     border-radius:50%;font-size:14px;cursor:pointer;display:flex;
+                     align-items:center;justify-content:center;transition:all .15s;"
+              onmouseover="this.style.background='var(--c3)';this.style.color='var(--t1)'"
+              onmouseout="this.style.background='var(--c2)';this.style.color='var(--t3)'">✕</button>
           </div>
+          <div style="padding:16px 20px 20px;">
           <input id="wl-search" type="text" placeholder="Buscar por nombre o símbolo..."
             oninput="WatchlistScreen._onSearch(this.value)"
             style="width:100%;padding:8px 12px;border-radius:var(--radius-s);
@@ -767,18 +810,23 @@ const WatchlistScreen = {
             </div>
           </div>
           <div id="wl-selected-coin" style="display:none;margin-top:12px;"></div>
-          <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end;">
+          <div style="display:flex;gap:8px;margin-top:20px;justify-content:flex-end;">
             <button onclick="WatchlistScreen._closeModal()"
-              style="padding:6px 16px;border-radius:var(--radius-s);border:0.5px solid var(--w1);
-                     background:transparent;color:var(--t3);font-size:13px;cursor:pointer;">
+              style="padding:7px 18px;border-radius:var(--radius-s);border:0.5px solid var(--w1);
+                     background:transparent;color:var(--t3);font-size:13px;cursor:pointer;
+                     transition:all .15s;"
+              onmouseover="this.style.borderColor='var(--t3)';this.style.color='var(--t1)'"
+              onmouseout="this.style.borderColor='var(--w1)';this.style.color='var(--t3)'">
               Cancelar
             </button>
             <button id="wl-add-btn" onclick="WatchlistScreen._confirmAdd()" disabled
-              style="padding:6px 16px;border-radius:var(--radius-s);border:none;
-                     background:var(--cy);color:#fff;font-size:13px;cursor:pointer;opacity:0.5;">
-              Agregar
+              style="padding:7px 18px;border-radius:var(--radius-s);border:none;
+                     background:var(--cy);color:#0F0E0D;font-size:13px;font-weight:600;
+                     cursor:pointer;opacity:0.4;transition:all .15s;">
+              <i class="ti ti-plus" style="font-size:12px;"></i> Agregar
             </button>
           </div>
+          </div><!-- /padding wrapper -->
         </div>
       </div>
 
@@ -964,26 +1012,111 @@ const WatchlistScreen = {
   async _editItem(id) {
     const item = this.items.find(i => i.id === id);
     if (!item) return;
-    const newExchange = prompt(
-      `Exchange para ${item.name}:\nbinance | mexc | coinex | coingecko`,
-      item.exchange
-    );
-    if (!newExchange || newExchange === item.exchange) return;
-    const valid = ['binance','mexc','coinex','coingecko'];
-    if (!valid.includes(newExchange.toLowerCase())) {
-      alert('Exchange no válido. Usá: binance, mexc, coinex o coingecko');
-      return;
-    }
-    await API.updateWatchlistItem(id, {exchange: newExchange.toLowerCase()});
-    await this._loadList();
+    this._showDialog({
+      icon: '<i class="ti ti-pencil" style="color:var(--cy);"></i>',
+      title: `Editar ${item.name}`,
+      body: `
+        <div style="margin-bottom:12px;">
+          <div style="font-family:var(--f2);font-size:10px;color:var(--t3);
+                      text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px;">Exchange</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;" id="dlg-exchange-btns">
+            ${['binance','mexc','coinex','coingecko'].map(ex => `
+            <button onclick="WatchlistScreen._dlgSelectExchange('${ex}')"
+              id="dlg-ex-${ex}"
+              style="padding:6px 14px;border-radius:4px;
+                     border:0.5px solid ${ex===item.exchange ? 'var(--cy)' : 'var(--w1)'};
+                     background:${ex===item.exchange ? 'var(--cy)' : 'transparent'};
+                     color:${ex===item.exchange ? '#0F0E0D' : 'var(--t3)'};
+                     font-size:12px;font-family:var(--f2);cursor:pointer;transition:all .15s;">
+              ${ex}
+            </button>`).join('')}
+          </div>
+        </div>`,
+      buttons: [
+        { label: 'Cancelar', style: 'secondary', action: () => this._closeDialog() },
+        { label: '<i class="ti ti-check"></i> Guardar', style: 'primary', action: async () => {
+            const ex = this._dlgSelectedExchange || item.exchange;
+            if (ex === item.exchange) { this._closeDialog(); return; }
+            this._closeDialog();
+            await API.updateWatchlistItem(id, {exchange: ex});
+            await this._loadList();
+          }
+        },
+      ],
+    });
+    this._dlgSelectedExchange = item.exchange;
+  },
+
+  _dlgSelectedExchange: null,
+  _dlgSelectExchange(ex) {
+    this._dlgSelectedExchange = ex;
+    ['binance','mexc','coinex','coingecko'].forEach(e => {
+      const btn = document.getElementById(`dlg-ex-${e}`);
+      if (!btn) return;
+      btn.style.background   = e===ex ? 'var(--cy)' : 'transparent';
+      btn.style.color        = e===ex ? '#0F0E0D'   : 'var(--t3)';
+      btn.style.borderColor  = e===ex ? 'var(--cy)' : 'var(--w1)';
+    });
   },
 
   async _removeItem(id, name) {
-    if (!confirm(`¿Eliminar ${name} de la watchlist?`)) return;
-    await API.removeFromWatchlist(id);
-    this.items = this.items.filter(i => i.id !== id);
-    const row = document.getElementById(`wl-row-${id}`);
-    if (row) row.remove();
-    if (!this.items.length) document.getElementById('wl-tbody').innerHTML = this._renderEmpty();
+    this._showDialog({
+      icon: '<i class="ti ti-trash" style="color:var(--re);"></i>',
+      title: 'Eliminar de watchlist',
+      body: `<p style="font-size:13px;color:var(--t2);line-height:1.5;">
+               ¿Eliminar <strong style="color:var(--t1);">${name}</strong> de tu watchlist?
+             </p>`,
+      buttons: [
+        { label: 'Cancelar', style: 'secondary', action: () => this._closeDialog() },
+        { label: '<i class="ti ti-trash"></i> Eliminar', style: 'danger', action: async () => {
+            this._closeDialog();
+            await API.removeFromWatchlist(id);
+            this.items = this.items.filter(i => i.id !== id);
+            const row = document.getElementById(`wl-row-${id}`);
+            if (row) row.remove();
+            if (!this.items.length) document.getElementById('wl-tbody').innerHTML = this._renderEmpty();
+          }
+        },
+      ],
+    });
+  },
+  // ── Sistema de diálogos ───────────────────────────────────────────────────
+  _showDialog({ icon='', title='', body='', buttons=[] }) {
+    const dlg = document.getElementById('wl-dialog');
+    if (!dlg) return;
+
+    document.getElementById('wl-dialog-icon').innerHTML  = icon;
+    document.getElementById('wl-dialog-title').textContent = title;
+    document.getElementById('wl-dialog-body').innerHTML  = body;
+
+    const footer = document.getElementById('wl-dialog-footer');
+    footer.innerHTML = buttons.map((btn, i) => {
+      const styleMap = {
+        primary:   'background:var(--cy);color:#0F0E0D;border:none;font-weight:600;',
+        secondary: 'background:transparent;color:var(--t3);border:0.5px solid var(--w1);',
+        danger:    'background:#D93B3B18;color:#D93B3B;border:0.5px solid #D93B3B40;',
+      };
+      const s = styleMap[btn.style] || styleMap.secondary;
+      return `<button id="wl-dlg-btn-${i}"
+        style="padding:7px 18px;border-radius:var(--radius-s);font-size:13px;
+               cursor:pointer;transition:all .15s;${s}">
+        ${btn.label}
+      </button>`;
+    }).join('');
+
+    // Asignar acciones después de insertar en el DOM
+    buttons.forEach((btn, i) => {
+      const el = document.getElementById(`wl-dlg-btn-${i}`);
+      if (el) el.addEventListener('click', btn.action);
+    });
+
+    dlg.style.display = 'flex';
+    // Cerrar al click en backdrop
+    dlg.onclick = (e) => { if (e.target === dlg) this._closeDialog(); };
+  },
+
+  _closeDialog() {
+    const dlg = document.getElementById('wl-dialog');
+    if (dlg) dlg.style.display = 'none';
   },
 };
