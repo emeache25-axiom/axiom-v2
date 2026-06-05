@@ -99,6 +99,14 @@ const ChartsScreen = {
     this.chart.priceScale('volume').applyOptions({scaleMargins:{top:0.82,bottom:0}});
 
     this.chart.subscribeCrosshairMove(p => this._onCrosshairMove(p));
+
+    // Init DrawingManager
+    const chartContainer = document.getElementById('chart-container')?.parentElement;
+    if (chartContainer) {
+      DrawingManager.init(this.chart, this._lwc, chartContainer, this.coinId, this.timeframe, this.candleSeries);
+      DrawingManager.renderToolbar();
+    }
+
     this.chart.timeScale().subscribeVisibleLogicalRangeChange(r => {
       if (r && r.from < 10) this._loadMore();
     });
@@ -121,6 +129,7 @@ const ChartsScreen = {
   },
 
   _destroyChart() {
+    DrawingManager.destroy();
     if (this._paneResizeObserver) { this._paneResizeObserver.disconnect(); this._paneResizeObserver = null; }
     const container = document.getElementById('chart-container');
     if (container && this._paneMouseUpHandler) {
@@ -177,8 +186,9 @@ const ChartsScreen = {
       const last = this._allCandles[this._allCandles.length - 1];
       if (last) this._updateInfoBar(last);
 
-      // 6. Cargar indicadores con las nuevas velas ya cargadas
+      // 6. Cargar indicadores y dibujos con las nuevas velas ya cargadas
       await IndicatorManager.loadFromDB(this.timeframe);
+      await DrawingManager.loadFromDB(this.coinId, this.timeframe);
       this._wsConnect();
     } catch(e) {
       console.error('[charts]', e);
@@ -701,7 +711,9 @@ const ChartsScreen = {
 
       '</div>' +
 
-      '<div style="position:relative;flex:1;min-height:0;border:0.5px solid var(--w1);border-radius:var(--radius-s);overflow:hidden;background:#0F0E0D;">' +
+      '<div style="position:relative;flex:1;min-height:0;display:flex;border:0.5px solid var(--w1);border-radius:var(--radius-s);overflow:hidden;background:#0F0E0D;">' +
+        '<div id="chart-drawing-toolbar" style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 3px;background:#0F0E0D;border-right:0.5px solid #1A1917;z-index:30;flex-shrink:0;"></div>' +
+        '<div style="position:relative;flex:1;min-height:0;">' +
         '<div id="chart-container" style="width:100%;height:100%;"></div>' +
         '<div id="chart-ind-overlays" style="position:absolute;inset:0;pointer-events:none;z-index:15;"></div>' +
         '<div id="chart-info-bar" style="position:absolute;top:8px;left:8px;z-index:5;display:flex;align-items:center;gap:8px;flex-wrap:wrap;pointer-events:none;"></div>' +
@@ -712,6 +724,7 @@ const ChartsScreen = {
           '<i class="ti ti-refresh" style="font-size:11px;color:var(--cy);animation:spin 1s linear infinite;"></i>' +
           '<span style="font-family:var(--f2);font-size:10px;color:var(--t3);">Cargando histórico...</span>' +
         '</div>' +
+      '</div>' +   // cierre div relativo inner
       '</div>' +
 
       '<div id="chart-ind-modal" style="display:none;position:fixed;inset:0;z-index:600;background:rgba(0,0,0,.6);backdrop-filter:blur(3px);align-items:flex-start;justify-content:center;padding-top:48px;">' +
