@@ -105,4 +105,52 @@ const API = {
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     return r.json();
   },
+  // ── Charts ────────────────────────────────────────────────────────────────
+  async getChartOHLCV(coinId, timeframe='1d', limit=300) {
+    const r = await fetch(`/api/charts/ohlcv?coin_id=${coinId}&timeframe=${timeframe}&limit=${limit}`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  },
+  async getChartState() {
+    const r = await fetch('/api/charts/state');
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  },
+  async getChartDrawings(coinId, timeframe='') {
+    const r = await fetch(`/api/charts/drawings/${coinId}?timeframe=${timeframe}`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  },
+  async saveDrawing(data) {
+    const r = await fetch('/api/charts/drawings', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  },
+  async updateDrawing(id, data) {
+    const r = await fetch(`/api/charts/drawings/${id}`, {
+      method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  },
+  async deleteDrawing(id) {
+    const r = await fetch(`/api/charts/drawings/${id}`, {method:'DELETE'});
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  },
+  async getIndicators() {
+    const r = await fetch('/api/charts/indicators');
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  },
+  async saveIndicator(data) {
+    const r = await fetch('/api/charts/indicators', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(data),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  },
 };

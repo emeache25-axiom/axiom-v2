@@ -52,3 +52,9 @@ html,body{
 
 button{font-family:var(--f1);cursor:pointer;}
 a{color:inherit;text-decoration:none;}
+
+/* Ocultar logo TradingView en Lightweight Charts */
+.tv-lightweight-charts a[href*="tradingview"],
+.tv-lightweight-charts a[target="_blank"] {
+  display: none !important;
+}

@@ -83,3 +83,21 @@
     padding-bottom:calc(var(--bot-h) + 16px);
   }
 }
+
+/* ── Charts screen: altura completa ─────────────────────────────────────── */
+#screen-charts.active {
+  display:flex;
+  flex-direction:column;
+  height: calc(100vh - var(--nav-h) - 48px);  /* 48px = padding top/bottom del #app */
+}
+#screen-charts .charts-shell {
+  flex:1;
+  min-height:0;
+  display:flex;
+  flex-direction:column;
+}
+@media(max-width:640px){
+  #screen-charts.active {
+    height: calc(100vh - var(--nav-h) - var(--bot-h) - 32px);
+  }
+}
