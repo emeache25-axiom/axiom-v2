@@ -509,8 +509,17 @@ const IndicatorManager = {
     var self  = this;
     var metas = this._seriesMeta(ind.type, ind.params);
     metas.forEach(function(meta){
-      if(meta.type==='psar' || meta.type==='sr'){
-        ind.seriesArr.push({series:null, type:meta.type, priceLines:[]});
+      if(meta.type==='psar'){
+        // En LWC v5 los markers son un plugin separado sobre la candleSeries
+        var markersPlugin = null;
+        if(self._candleSeries && self._lwc.createSeriesMarkers){
+          try{ markersPlugin = self._lwc.createSeriesMarkers(self._candleSeries, []); }catch(e){}
+        }
+        ind.seriesArr.push({series:null, type:'psar', markersPlugin:markersPlugin, priceLines:[]});
+        return;
+      }
+      if(meta.type==='sr'){
+        ind.seriesArr.push({series:null, type:'sr', priceLines:[]});
         return;
       }
       var series;
@@ -545,8 +554,8 @@ const IndicatorManager = {
         return;
       }
       if(s.type==='psar'){
-        if(self._candleSeries){
-          try{ self._candleSeries.setMarkers([]); }catch(e){}
+        if(s.markersPlugin){
+          try{ s.markersPlugin.setMarkers([]); }catch(e){}
         }
         return;
       }
@@ -573,15 +582,20 @@ const IndicatorManager = {
 
         if(sr.type==='psar'){
           if(!self._candleSeries) return;
+          // Crear plugin si no existe aun (puede pasar si candleSeries no estaba lista al montar)
+          if(!sr.markersPlugin && self._lwc && self._lwc.createSeriesMarkers){
+            try{ sr.markersPlugin = self._lwc.createSeriesMarkers(self._candleSeries, []); }catch(e){}
+          }
+          if(!sr.markersPlugin) return;
           var markers = [];
           (s.bull||[]).forEach(function(pt){
-            markers.push({time:pt.time, position:'belowBar', color:s.colorBull||'#56A14F', shape:'circle', size:0.5});
+            markers.push({time:pt.time, position:'atPriceBottom', color:s.colorBull||'#56A14F', price:pt.value, shape:'circle', size:0.5});
           });
           (s.bear||[]).forEach(function(pt){
-            markers.push({time:pt.time, position:'aboveBar', color:s.colorBear||'#D93B3B', shape:'circle', size:0.5});
+            markers.push({time:pt.time, position:'atPriceTop', color:s.colorBear||'#D93B3B', price:pt.value, shape:'circle', size:0.5});
           });
           markers.sort(function(a,b){return a.time-b.time;});
-          try{ self._candleSeries.setMarkers(markers); }catch(e){}
+          try{ sr.markersPlugin.setMarkers(markers); }catch(e){}
           return;
         }
 
@@ -773,16 +787,16 @@ const IndicatorManager = {
           var sr = ind.seriesArr[i];
           if(!sr) return;
           if(sr.type==='psar'){
-            // Actualizar ultimo marker
+            if(!sr.markersPlugin) return;
             var markers = [];
             (s.bull||[]).forEach(function(pt){
-              markers.push({time:pt.time, position:'belowBar', color:s.colorBull||'#56A14F', shape:'circle', size:0.5});
+              markers.push({time:pt.time, position:'atPriceBottom', color:s.colorBull||'#56A14F', price:pt.value, shape:'circle', size:0.5});
             });
             (s.bear||[]).forEach(function(pt){
-              markers.push({time:pt.time, position:'aboveBar', color:s.colorBear||'#D93B3B', shape:'circle', size:0.5});
+              markers.push({time:pt.time, position:'atPriceTop', color:s.colorBear||'#D93B3B', price:pt.value, shape:'circle', size:0.5});
             });
             markers.sort(function(a,b){return a.time-b.time;});
-            try{ self._candleSeries.setMarkers(markers); }catch(e){}
+            try{ sr.markersPlugin.setMarkers(markers); }catch(e){}
             return;
           }
           if(!s.data||!s.data.length) return;
