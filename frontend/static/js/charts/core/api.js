@@ -28,8 +28,8 @@
     // Estado
     getChartState: () => jget('/api/charts/state'),
 
-    // Búsqueda de coins
-    searchCoins: (q) => jget(`/api/charts/search?q=${encodeURIComponent(q)}`),
+    // Búsqueda de coins (el endpoint vive en el router de watchlist)
+    searchCoins: (q, limit = 8) => jget(`/api/watchlist/search?q=${encodeURIComponent(q)}&limit=${limit}`),
 
     // Indicadores (globales)
     getIndicators:    () => jget('/api/charts/indicators'),

@@ -177,6 +177,19 @@
       this._oldestTime = candles.length ? candles[0].time : null;
       this._noMoreData = false;
 
+      // La respuesta de /history trae metadata del coin: la propagamos al Store
+      // para que el WebSocket sepa el exchange y el header muestre nombre/símbolo.
+      if (data.coin_id) {
+        Store.setCoin({
+          id:       data.coin_id,
+          name:     data.name   || Store.coin.name,
+          symbol:   data.symbol || Store.coin.symbol,
+          image:    data.image  || null,
+          exchange: data.exchange || null,
+          exSymbol: data.ex_symbol || null,
+        });
+      }
+
       // Aplicar formato de precio según magnitud
       const lastPrice = candles.length ? candles[candles.length - 1].close : 0;
       this._candleSeries.applyOptions({ priceFormat: this._priceFormat(lastPrice) });

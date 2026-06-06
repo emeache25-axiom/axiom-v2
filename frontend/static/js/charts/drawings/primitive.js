@@ -29,7 +29,14 @@
         const ctx = scope.context;
         const W = scope.mediaSize.width;
         const H = scope.mediaSize.height;
-        const chartW = this._s.chartW || W;   // ancho sin price scale
+        // chartW: ancho del área sin price scale. Preferimos el valor del state
+        // (calculado en updateAllViews via paneSize). Si no está disponible aún,
+        // lo pedimos directo al chart; último recurso, el ancho completo.
+        let chartW = this._s.chartW;
+        if (!chartW && this._s.chart) {
+          try { const ps = this._s.chart.paneSize; if (ps && ps.width) chartW = ps.width; } catch (e) {}
+        }
+        if (!chartW) chartW = W;
         const chartH = H;
 
         ctx.save();
@@ -102,7 +109,7 @@
       this._state = {
         drawings: [], preview: null,
         hoverId: null, selectedId: null,
-        chartW: 0,
+        chartW: 0, chart: null,
       };
       this._views = [new DrawingsPaneView(this)];
       this._requestUpdate = null;
@@ -113,6 +120,7 @@
     attached({ chart, series, requestUpdate }) {
       this._chart = chart;
       this._series = series;
+      this._state.chart = chart;
       this._requestUpdate = requestUpdate;
     }
     detached() { this._chart = null; this._series = null; this._requestUpdate = null; }
@@ -122,9 +130,10 @@
 
     _updateChartW() {
       try {
-        const total = this._chart.paneSize ? this._chart.paneSize().width : 0;
-        const psW = this._chart.priceScale('right').width();
-        this._state.chartW = total ? (total - psW) : 0;
+        // paneSize es un getter en v5: { width, height } del área de chart,
+        // que YA excluye price scale y time scale. No restamos nada más.
+        const ps = this._chart.paneSize;
+        if (ps && ps.width) this._state.chartW = ps.width;
       } catch (e) {}
       // Fallback: si no se pudo, el renderer usa el ancho del canvas completo
     }
