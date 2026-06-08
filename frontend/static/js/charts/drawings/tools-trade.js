@@ -34,33 +34,39 @@
         const cEntry = entryColor;
         const cTarget = dir === 'long' ? '#56A14F22' : '#D93B3B22';
         const cStop   = dir === 'long' ? '#D93B3B22' : '#56A14F22';
-        const xStart = Math.min(p1.x, p2.x);
-        const W = st.chartW;
+        // Ancho fijo entre los dos puntos (estilo TradingView)
+        const xL = Math.min(p1.x, p2.x);
+        const xR = Math.max(p1.x, p2.x);
+        const w = xR - xL;
 
         ctx.setLineDash([]);
-        // Zona target
+        // Zona target (ganancia)
         ctx.fillStyle = cTarget;
-        ctx.fillRect(xStart, Math.min(yEntry, yTarget), W - xStart, Math.abs(yTarget - yEntry));
-        // Zona stop
+        ctx.fillRect(xL, Math.min(yEntry, yTarget), w, Math.abs(yTarget - yEntry));
+        // Zona stop (pérdida)
         ctx.fillStyle = cStop;
-        ctx.fillRect(xStart, Math.min(yEntry, yStop), W - xStart, Math.abs(yStop - yEntry));
-        // Línea de entrada
+        ctx.fillRect(xL, Math.min(yEntry, yStop), w, Math.abs(yStop - yEntry));
+        // Borde de las zonas
+        ctx.strokeStyle = (dir === 'long' ? '#56A14F' : '#D93B3B') + '60';
+        ctx.lineWidth = 0.5;
+        ctx.strokeRect(xL, Math.min(yEntry, yTarget), w, Math.abs(yTarget - yEntry));
+        ctx.strokeStyle = (dir === 'long' ? '#D93B3B' : '#56A14F') + '60';
+        ctx.strokeRect(xL, Math.min(yEntry, yStop), w, Math.abs(yStop - yEntry));
+        // Línea de entrada (resaltada)
         ctx.beginPath();
         ctx.strokeStyle = st.selected ? '#F5F0EB' : cEntry;
         ctx.lineWidth = (s.lineWidth || 1) + (st.hovered ? 0.5 : 0);
-        ctx.setLineDash([4, 3]);
-        ctx.moveTo(xStart, yEntry); ctx.lineTo(W, yEntry);
+        ctx.moveTo(xL, yEntry); ctx.lineTo(xR, yEntry);
         ctx.stroke();
         // Labels
-        ctx.setLineDash([]);
         ctx.font = '10px IBM Plex Mono,monospace';
         const rr = risk > 0 ? (Math.abs(target - entry) / risk).toFixed(1) : '—';
         ctx.fillStyle = cEntry;
-        ctx.fillText(`${dir.toUpperCase()}  ${Geo.fmtPrice(entry)}`, xStart + 6, yEntry - 4);
+        ctx.fillText(`${dir.toUpperCase()}  ${Geo.fmtPrice(entry)}`, xL + 4, yEntry - 4);
         ctx.fillStyle = dir === 'long' ? '#56A14F' : '#D93B3B';
-        ctx.fillText(`TP  ${Geo.fmtPrice(target)}  R:R ${rr}`, xStart + 6, Math.min(yEntry, yTarget) - 4);
+        ctx.fillText(`TP ${Geo.fmtPrice(target)}  R:R ${rr}`, xL + 4, Math.min(yEntry, yTarget) + 11);
         ctx.fillStyle = dir === 'long' ? '#D93B3B' : '#56A14F';
-        ctx.fillText(`SL  ${Geo.fmtPrice(stop)}`, xStart + 6, Math.max(yEntry, yStop) + 12);
+        ctx.fillText(`SL ${Geo.fmtPrice(stop)}`, xL + 4, Math.max(yEntry, yStop) - 4);
       },
       hitTest(mx, my, px) {
         const h = Geo.hitHandle(mx, my, px);

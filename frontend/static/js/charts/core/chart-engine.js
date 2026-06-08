@@ -271,32 +271,46 @@
       this._ws.onmessage = (ev) => {
         try {
           const msg = JSON.parse(ev.data);
-          if (msg.type === 'candle' && msg.data) this._onTick(msg.data);
+          // El backend envía: heartbeat, fallback, o tick (datos en nivel raíz)
+          if (msg.type === 'heartbeat') { this._ws.send('ping'); return; }
+          if (msg.type === 'fallback')  return;
+          if (msg.type === 'tick')      this._onTick(msg);
         } catch (e) {}
       };
       this._ws.onclose = () => { this._wsReconnect(); };
       this._ws.onerror = () => { try { this._ws.close(); } catch (e) {} };
     }
 
-    _onTick(candle) {
-      const c = {
-        time: candle.time, open: candle.open, high: candle.high,
-        low: candle.low, close: candle.close, volume: candle.volume || 0,
+    _onTick(tick) {
+      // El tick es de Binance kline_1m. Filtramos por símbolo porque el WS
+      // multiplexado puede recibir ticks de otras coins suscritas.
+      const exSym = (Store.coin.exSymbol || '').toUpperCase();
+      if (tick.symbol && exSym && tick.symbol !== exSym) return;
+
+      const n = this._allCandles.length;
+      if (!n) return;
+      const last = this._allCandles[n - 1];
+
+      // Combinar el tick con la última vela del timeframe actual
+      const updated = {
+        time:  last.time,
+        open:  last.open,
+        high:  Math.max(last.high, tick.high),
+        low:   Math.min(last.low,  tick.low),
+        close: tick.close,
+        volume: tick.volume != null ? tick.volume : last.volume,
       };
       try {
-        this._candleSeries.update(c);
+        this._candleSeries.update(updated);
         this._volumeSeries.update({
-          time: c.time, value: c.volume,
-          color: c.close >= c.open ? '#56A14F40' : '#D93B3B40',
+          time: updated.time, value: updated.volume,
+          color: updated.close >= updated.open ? '#56A14F40' : '#D93B3B40',
         });
       } catch (e) {}
 
-      const n = this._allCandles.length;
-      if (n && this._allCandles[n - 1].time === c.time) this._allCandles[n - 1] = c;
-      else if (n && c.time > this._allCandles[n - 1].time) this._allCandles.push(c);
-
+      this._allCandles[n - 1] = updated;
       Coords.setCandles(this._allCandles);
-      Store.updateCandle(c);
+      Store.updateCandle(updated);
     }
 
     _wsReconnect() {

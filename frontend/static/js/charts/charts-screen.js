@@ -71,6 +71,9 @@
         await NS.IndicatorManager.loadFromDB();
         await NS.DrawingManager.loadFromDB(Store.coin.id);
 
+        // Montar leyenda de indicadores (por pane, estilo TradingView)
+        NS.Legend.mount();
+
         Engine.wsConnect();
         this._updateHeader();
       } catch (e) {

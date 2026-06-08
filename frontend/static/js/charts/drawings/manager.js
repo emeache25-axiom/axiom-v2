@@ -281,9 +281,8 @@
 
       if (def.numPoints === 1) {
         if (tool === 'text') {
-          const text = prompt('Texto:', 'Nota');
-          if (!text) return;
-          this._finalize(tool, [pt], { text });
+          // Editor de texto inline (estilo TradingView): input flotante en el punto
+          this._startInlineText(pt, c);
         } else {
           this._finalize(tool, [pt], {});
         }
@@ -303,6 +302,35 @@
           this._primitive.setPreview(null);
         }
       }
+    }
+
+    // Editor de texto inline: input flotante posicionado en el punto del click.
+    _startInlineText(pt, coord) {
+      document.getElementById('drawing-inline-text')?.remove();
+      const rect = this._evTarget.getBoundingClientRect();
+      const input = document.createElement('input');
+      input.id = 'drawing-inline-text';
+      input.type = 'text';
+      input.placeholder = 'Escribí y Enter…';
+      input.style.cssText = `position:fixed;left:${rect.left + coord.x}px;top:${rect.top + coord.y - 10}px;
+        z-index:900;background:rgba(26,25,23,.95);border:1px solid #2563EB;border-radius:4px;
+        color:#F5F0EB;font:12px 'IBM Plex Mono',monospace;padding:3px 6px;outline:none;min-width:120px;`;
+      document.body.appendChild(input);
+      input.focus();
+
+      const commit = (save) => {
+        const text = input.value.trim();
+        input.remove();
+        // Salir del modo herramienta
+        this.cancelTool();
+        if (save && text) this._finalize('text', [pt], { text });
+      };
+      input.addEventListener('keydown', (e) => {
+        e.stopPropagation();
+        if (e.key === 'Enter')  commit(true);
+        if (e.key === 'Escape') commit(false);
+      });
+      input.addEventListener('blur', () => commit(true));
     }
 
     async _finalize(type, points, styleOverrides) {

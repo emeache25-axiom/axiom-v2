@@ -27,8 +27,9 @@
         0: '#78716C', 0.236: '#2563EB', 0.382: '#56A14F',
         0.5: '#C9A84C', 0.618: '#D86326', 0.786: '#D93B3B', 1: '#78716C',
       };
-      const xLeft = Math.min(p1.x, p2.x);
-      const xRight = st.chartW - 4;
+      // Ancho fijo entre los dos puntos (estilo TradingView), no hasta el borde
+      const xLeft  = Math.min(p1.x, p2.x);
+      const xRight = Math.max(p1.x, p2.x);
 
       for (const lvl of levels) {
         const price = priceHigh - (priceHigh - priceLow) * lvl;
@@ -39,12 +40,13 @@
         ctx.strokeStyle = color;
         ctx.lineWidth = 0.75;
         ctx.setLineDash([3, 3]);
-        ctx.moveTo(xLeft, y); ctx.lineTo(xRight - 70, y);
+        ctx.moveTo(xLeft, y); ctx.lineTo(xRight, y);
         ctx.stroke();
         ctx.setLineDash([]);
         ctx.font = '9px IBM Plex Mono,monospace';
         ctx.fillStyle = color;
-        ctx.fillText(`${(lvl * 100).toFixed(1)}%  ${Geo.fmtPrice(price)}`, xRight - 68, y - 2);
+        // Label del nivel a la izquierda del rango
+        ctx.fillText(`${(lvl * 100).toFixed(1)}%  ${Geo.fmtPrice(price)}`, xLeft + 2, y - 2);
       }
       // Línea vertical de anclaje entre los dos puntos
       ctx.beginPath();
