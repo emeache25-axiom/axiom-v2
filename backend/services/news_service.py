@@ -9,7 +9,7 @@ import re
 logger = logging.getLogger(__name__)
 
 RSS_FEEDS = [
-    {"name": "CoinTelegraph",      "url": "https://cointelegraph.es/rss",                  "lang": "es", "category": "General"},
+    {"name": "BeInCrypto",         "url": "https://es.beincrypto.com/feed/",                "lang": "es", "category": "General"},
     {"name": "DiarioBitcoin",      "url": "https://www.diariobitcoin.com/feed",             "lang": "es", "category": "Bitcoin"},
     {"name": "Decrypt",            "url": "https://decrypt.co/es/feed",                    "lang": "es", "category": "General"},
     {"name": "Bitcoin.com",        "url": "https://news.bitcoin.com/es/feed/",              "lang": "es", "category": "General"},
