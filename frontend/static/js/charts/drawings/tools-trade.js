@@ -13,9 +13,13 @@
   function makeTrade(type, dir, label, icon, entryColor) {
     R.register({
       type, label, icon, numPoints: 2,
-      defaults: { color: entryColor, lineWidth: 1 },
+      defaults: { color: entryColor, lineWidth: 1, textColor: '#F5F0EB', textSize: 10, textPos: 'left' },
       fields: [
-        { key: 'lineWidth', label: 'Grosor', type: 'range', min: 0.5, max: 3, step: 0.5 },
+        { key: 'lineWidth', label: 'Grosor',       type: 'range',  min: 0.5, max: 3, step: 0.5 },
+        { key: 'textColor', label: 'Color texto',  type: 'color' },
+        { key: 'textSize',  label: 'Tamaño texto', type: 'number', min: 7, max: 18, step: 1 },
+        { key: 'textPos',   label: 'Posición',     type: 'select', options: [
+          { v: 'left', l: 'Izquierda' }, { v: 'center', l: 'Centro' }, { v: 'right', l: 'Derecha' } ] },
       ],
       render(ctx, px, s, st) {
         const [p1, p2] = px;
@@ -58,15 +62,27 @@
         ctx.lineWidth = (s.lineWidth || 1) + (st.hovered ? 0.5 : 0);
         ctx.moveTo(xL, yEntry); ctx.lineTo(xR, yEntry);
         ctx.stroke();
-        // Labels
-        ctx.font = '10px IBM Plex Mono,monospace';
+
+        // Labels con estilo configurable
+        const tSize  = s.textSize || 10;
+        const tColor = s.textColor || '#F5F0EB';
+        const tPos   = s.textPos || 'left';
+        ctx.font = `${tSize}px IBM Plex Mono,monospace`;
         const rr = risk > 0 ? (Math.abs(target - entry) / risk).toFixed(1) : '—';
-        ctx.fillStyle = cEntry;
-        ctx.fillText(`${dir.toUpperCase()}  ${Geo.fmtPrice(entry)}`, xL + 4, yEntry - 4);
-        ctx.fillStyle = dir === 'long' ? '#56A14F' : '#D93B3B';
-        ctx.fillText(`TP ${Geo.fmtPrice(target)}  R:R ${rr}`, xL + 4, Math.min(yEntry, yTarget) + 11);
-        ctx.fillStyle = dir === 'long' ? '#D93B3B' : '#56A14F';
-        ctx.fillText(`SL ${Geo.fmtPrice(stop)}`, xL + 4, Math.max(yEntry, yStop) - 4);
+
+        const lblEntry  = `${dir.toUpperCase()}  ${Geo.fmtPrice(entry)}`;
+        const lblTarget = `TP ${Geo.fmtPrice(target)}  R:R ${rr}`;
+        const lblStop   = `SL ${Geo.fmtPrice(stop)}`;
+        const xFor = (lbl) => {
+          if (tPos === 'right')  return xR - ctx.measureText(lbl).width - 4;
+          if (tPos === 'center') return xL + (w - ctx.measureText(lbl).width) / 2;
+          return xL + 4;
+        };
+
+        ctx.fillStyle = tColor;
+        ctx.fillText(lblEntry, xFor(lblEntry), yEntry - 4);
+        ctx.fillText(lblTarget, xFor(lblTarget), Math.min(yEntry, yTarget) + 11);
+        ctx.fillText(lblStop, xFor(lblStop), Math.max(yEntry, yStop) - 4);
       },
       hitTest(mx, my, px) {
         const h = Geo.hitHandle(mx, my, px);

@@ -11,9 +11,14 @@
   // ── Fibonacci Retracement ───────────────────────────────────────────────────
   R.register({
     type: 'fib', label: 'Fibonacci', icon: 'ti-wave-square', numPoints: 2,
-    defaults: { lineWidth: 1, levels: [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1] },
+    defaults: { lineWidth: 1, textColor: '#A8A29E', textSize: 9, textPos: 'left',
+                levels: [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1] },
     fields: [
-      { key: 'lineWidth', label: 'Grosor', type: 'range', min: 0.5, max: 3, step: 0.5 },
+      { key: 'lineWidth', label: 'Grosor',       type: 'range',  min: 0.5, max: 3, step: 0.5 },
+      { key: 'textColor', label: 'Color texto',  type: 'color' },
+      { key: 'textSize',  label: 'Tamaño texto', type: 'number', min: 7, max: 18, step: 1 },
+      { key: 'textPos',   label: 'Posición',     type: 'select', options: [
+        { v: 'left', l: 'Izquierda' }, { v: 'right', l: 'Derecha' } ] },
     ],
     render(ctx, px, s, st) {
       const [p1, p2] = px;
@@ -30,6 +35,9 @@
       // Ancho fijo entre los dos puntos (estilo TradingView), no hasta el borde
       const xLeft  = Math.min(p1.x, p2.x);
       const xRight = Math.max(p1.x, p2.x);
+      const tSize  = s.textSize || 9;
+      const tColor = s.textColor || '#A8A29E';
+      const tPos   = s.textPos || 'left';
 
       for (const lvl of levels) {
         const price = priceHigh - (priceHigh - priceLow) * lvl;
@@ -43,10 +51,15 @@
         ctx.moveTo(xLeft, y); ctx.lineTo(xRight, y);
         ctx.stroke();
         ctx.setLineDash([]);
-        ctx.font = '9px IBM Plex Mono,monospace';
-        ctx.fillStyle = color;
-        // Label del nivel a la izquierda del rango
-        ctx.fillText(`${(lvl * 100).toFixed(1)}%  ${Geo.fmtPrice(price)}`, xLeft + 2, y - 2);
+        ctx.font = `${tSize}px IBM Plex Mono,monospace`;
+        ctx.fillStyle = tColor;
+        const label = `${(lvl * 100).toFixed(1)}%  ${Geo.fmtPrice(price)}`;
+        if (tPos === 'right') {
+          const tw = ctx.measureText(label).width;
+          ctx.fillText(label, xRight - tw - 2, y - 2);
+        } else {
+          ctx.fillText(label, xLeft + 2, y - 2);
+        }
       }
       // Línea vertical de anclaje entre los dos puntos
       ctx.beginPath();

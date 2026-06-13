@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 RSS_FEEDS = [
     {"name": "BeInCrypto",         "url": "https://es.beincrypto.com/feed/",                "lang": "es", "category": "General"},
+    {"name": "CriptoPasion",       "url": "https://www.criptopasion.com/feed/",             "lang": "es", "category": "General"},
     {"name": "DiarioBitcoin",      "url": "https://www.diariobitcoin.com/feed",             "lang": "es", "category": "Bitcoin"},
     {"name": "Decrypt",            "url": "https://decrypt.co/es/feed",                    "lang": "es", "category": "General"},
     {"name": "Bitcoin.com",        "url": "https://news.bitcoin.com/es/feed/",              "lang": "es", "category": "General"},

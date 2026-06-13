@@ -14,6 +14,15 @@
   NS.Charts = NS.Charts || {};
 
   const Lib = {
+    /** Mapeo de estilo de línea legible → constante LWC (0=sólida,1=punteada,2=guiones). */
+    lineStyle(v) {
+      return { solid: 0, dotted: 1, dashed: 2 }[v] ?? 0;
+    },
+
+    /** Opciones estándar para el campo de estilo de línea en los editores. */
+    LINE_STYLE_FIELD: { key: 'lineStyle', label: 'Tipo de línea', type: 'select', options: [
+      { v: 'solid', l: 'Sólida' }, { v: 'dashed', l: 'Guiones' }, { v: 'dotted', l: 'Punteada' } ] },
+
     /** Media móvil simple. period > 0. */
     sma(values, period) {
       const out = new Array(values.length).fill(null);

@@ -94,7 +94,7 @@
           horzLines: { color: THEME.grid, style: 1 },
         },
         crosshair: {
-          mode: 1,
+          mode: 0,  // 0 = Normal (libre); 1 = Magnet (se pega a velas/series)
           vertLine: { color: THEME.border, labelBackgroundColor: '#1A1917' },
           horzLine: { color: THEME.border, labelBackgroundColor: '#1A1917' },
         },
@@ -156,18 +156,18 @@
     }
 
     // ── Gestión de panes (para indicadores en sub-paneles) ──────────────────────
-    /** Reserva un pane nuevo y devuelve su índice. */
+    /**
+     * Devuelve el índice donde crear un pane nuevo: el final de la lista real.
+     * No llevamos contabilidad propia porque LWC compacta los índices al
+     * remover panes intermedios y cualquier registro local se desincroniza.
+     */
     allocPane() {
-      // El pane 0 es el principal. Buscar el primer índice libre >= 1.
-      let idx = 1;
-      while (this._panes[idx]) idx++;
-      this._panes[idx] = true;
-      return idx;
+      try { return this._chart.panes().length; }
+      catch (e) { return 1; }
     }
 
-    freePane(idx) {
-      delete this._panes[idx];
-    }
+    /** LWC elimina automáticamente los panes que quedan vacíos. */
+    freePane(idx) {}
 
     // ── Carga de datos ──────────────────────────────────────────────────────────
     async loadInitial(coinId, timeframe) {

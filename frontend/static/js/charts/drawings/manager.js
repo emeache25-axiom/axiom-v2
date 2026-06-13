@@ -154,6 +154,9 @@
     // ── Mouse handlers ─────────────────────────────────────────────────────────────
     _onDown(e) {
       if (e.button !== 0) return;
+      // Si hay un editor de texto inline abierto, este click solo lo confirma
+      // (vía su propio blur). No procesamos creación/selección.
+      if (this._inlineTextActive) return;
       const c = this._coordFromEvent(e);
       if (!c) return;
       const tool = Store.activeTool;
@@ -307,6 +310,7 @@
     // Editor de texto inline: input flotante posicionado en el punto del click.
     _startInlineText(pt, coord) {
       document.getElementById('drawing-inline-text')?.remove();
+      this._inlineTextActive = true;
       const rect = this._evTarget.getBoundingClientRect();
       const input = document.createElement('input');
       input.id = 'drawing-inline-text';
@@ -318,10 +322,15 @@
       document.body.appendChild(input);
       input.focus();
 
+      let done = false;   // evita doble-commit (blur + keydown)
       const commit = (save) => {
+        if (done) return;
+        done = true;
         const text = input.value.trim();
-        input.remove();
-        // Salir del modo herramienta
+        if (input.parentNode) input.parentNode.removeChild(input);
+        // Liberar el flag en el próximo tick, para que el click que disparó
+        // el blur no caiga en _onDown y cree otro texto.
+        setTimeout(() => { this._inlineTextActive = false; }, 0);
         this.cancelTool();
         if (save && text) this._finalize('text', [pt], { text });
       };
@@ -354,6 +363,21 @@
     // ── Persistencia ───────────────────────────────────────────────────────────────
     async _persist(d) {
       try { await NS.API.updateDrawing(d.id, { points: d.points, style: d.style }); } catch (e) {}
+    }
+
+    /** Clona un dibujo con un pequeño desplazamiento para distinguirlo. */
+    async cloneDrawing(id) {
+      const src = this._drawings.find((d) => d.id === id);
+      if (!src) return;
+      // Offset: ~3 velas a la derecha y 1% del precio hacia arriba
+      const candles = Store.candles;
+      const n = candles.length;
+      const dt = (n >= 2) ? (candles[n - 1].time - candles[0].time) / (n - 1) * 3 : 0;
+      const points = src.points.map((p) => ({
+        time: p.time + dt,
+        price: p.price * 1.01,
+      }));
+      await this._finalize(src.type, points, JSON.parse(JSON.stringify(src.style)));
     }
 
     async deleteDrawing(id) {

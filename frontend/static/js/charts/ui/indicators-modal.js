@@ -93,6 +93,7 @@
         let ctrl;
         if (f.type === 'color') ctrl = `<input type="color" data-key="${f.key}" value="${val || '#78716C'}" style="border:none;background:none;cursor:pointer;width:36px;height:24px;">`;
         else if (f.type === 'range') ctrl = `<input type="range" data-key="${f.key}" min="${f.min}" max="${f.max}" step="${f.step}" value="${val ?? 1}" style="flex:1;">`;
+        else if (f.type === 'select') ctrl = `<select data-key="${f.key}" style="flex:1;background:#0F0E0D;border:0.5px solid #2C2926;color:#F5F0EB;border-radius:4px;padding:4px 8px;font-size:12px;">${(f.options || []).map((o) => `<option value="${o.v}" ${val === o.v ? 'selected' : ''}>${o.l}</option>`).join('')}</select>`;
         else ctrl = `<input type="number" data-key="${f.key}" min="${f.min ?? ''}" max="${f.max ?? ''}" step="${f.step ?? 1}" value="${val ?? 0}" style="flex:1;background:#0F0E0D;border:0.5px solid #2C2926;color:#F5F0EB;border-radius:4px;padding:4px 8px;font-size:12px;">`;
         return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;"><label style="font-size:11px;color:#78716C;width:90px;">${f.label}</label>${ctrl}</div>`;
       };

@@ -35,9 +35,16 @@
       const styleFields = def.fields.map((f) => fieldRow(f.label, fieldControl(f, drawing.style[f.key]))).join('');
 
       let coordFields = '';
+      // datetime-local trabaja en hora LOCAL del browser: generamos el valor
+      // en local (no toISOString que es UTC) para que la ida y vuelta sea
+      // consistente y el punto no se desplace al guardar.
+      const toLocalDT = (unixSec) => {
+        const d = new Date(unixSec * 1000);
+        const pad = (n) => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      };
       drawing.points.forEach((p, i) => {
-        const d = new Date(p.time * 1000);
-        const dateStr = d.toISOString().slice(0, 16);
+        const dateStr = toLocalDT(p.time);
         coordFields += `<div style="margin-bottom:14px;">
           <div style="font-size:10px;color:#57534E;text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px;">Punto ${i + 1}</div>
           ${fieldRow('Precio', `<input type="number" data-coord="price" data-idx="${i}" value="${p.price}" step="any" style="flex:1;background:#0F0E0D;border:0.5px solid #2C2926;color:#F5F0EB;border-radius:4px;padding:5px 8px;font-size:12px;">`)}
@@ -99,8 +106,16 @@
           modal.querySelectorAll('[data-coord]').forEach((inp) => {
             const idx = +inp.dataset.idx;
             if (!d.points[idx]) return;
-            if (inp.dataset.coord === 'price') d.points[idx].price = parseFloat(inp.value);
-            if (inp.dataset.coord === 'time')  d.points[idx].time = Math.floor(new Date(inp.value).getTime() / 1000);
+            if (inp.dataset.coord === 'price') {
+              const v = parseFloat(inp.value);
+              if (isFinite(v)) d.points[idx].price = v;       // ignorar si es NaN
+            }
+            if (inp.dataset.coord === 'time') {
+              // new Date('YYYY-MM-DDTHH:mm') parsea en hora LOCAL — simétrico
+              // con toLocalDT. Validamos para no pisar el punto con NaN.
+              const ms = new Date(inp.value).getTime();
+              if (isFinite(ms)) d.points[idx].time = Math.floor(ms / 1000);
+            }
           });
           NS.DrawingManager._primitive.setDrawings(NS.DrawingManager._drawings);
           NS.DrawingManager._persist(d);
@@ -119,6 +134,7 @@
       menu.style.cssText = `position:fixed;left:${clientX}px;top:${clientY}px;background:#1A1917;border:0.5px solid #2C2926;border-radius:7px;z-index:800;box-shadow:0 8px 32px rgba(0,0,0,.6);overflow:hidden;min-width:160px;padding:4px;`;
       const items = [
         { label: '<i class="ti ti-settings"></i> Configurar', fn: () => NS.DrawingEditDialog.open(drawing) },
+        { label: '<i class="ti ti-copy"></i> Clonar', fn: () => NS.DrawingManager.cloneDrawing(drawing.id) },
         { label: drawing.locked ? '<i class="ti ti-lock-open"></i> Desbloquear' : '<i class="ti ti-lock"></i> Bloquear',
           fn: () => { drawing.locked = !drawing.locked; NS.DrawingManager._persist(drawing); } },
         { sep: true },
