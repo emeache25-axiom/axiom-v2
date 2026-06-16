@@ -48,6 +48,7 @@
     },
 
     onLeave() {
+      NS.IndicatorManager.flushPaneHeights();
       NS.DrawingManager.destroy();
       Engine.destroyChart();
     },
@@ -56,6 +57,8 @@
     async _loadChart() {
       this._setLoading(true);
       try {
+        // Persistir alturas de pane antes de destruir el chart actual
+        NS.IndicatorManager.flushPaneHeights();
         // Destruir y recrear (cambio de coin/timeframe)
         NS.DrawingManager.destroy();
         const container = document.getElementById('chart-container');

@@ -78,20 +78,25 @@
       winLong: 25, winMid: 10, winShort: 4,
       // Cantidad de niveles a mostrar por horizonte
       countLong: 3, countMid: 4, countShort: 5,
+      // Toggles de visibilidad por horizonte
+      showLong: 'si', showMid: 'si', showShort: 'si',
       colorLong: '#D93B3B', colorMid: '#C9A84C', colorShort: '#2563EB',
     },
     fields: [
-      { key: 'tolerance',  label: 'Tolerancia %',     type: 'number', min: 0.002, max: 0.05, step: 0.002 },
-      { key: 'minTouches', label: 'Toques mín.',      type: 'number', min: 1, max: 10, step: 1 },
-      { key: 'winLong',    label: 'Ventana largo',    type: 'number', min: 10, max: 60, step: 1 },
-      { key: 'winMid',     label: 'Ventana medio',    type: 'number', min: 5,  max: 30, step: 1 },
-      { key: 'winShort',   label: 'Ventana corto',    type: 'number', min: 2,  max: 15, step: 1 },
-      { key: 'countLong',  label: 'Niveles largo',    type: 'number', min: 0, max: 8, step: 1 },
-      { key: 'countMid',   label: 'Niveles medio',    type: 'number', min: 0, max: 8, step: 1 },
-      { key: 'countShort', label: 'Niveles corto',    type: 'number', min: 0, max: 8, step: 1 },
-      { key: 'colorLong',  label: 'Color largo',      type: 'color' },
-      { key: 'colorMid',   label: 'Color medio',      type: 'color' },
-      { key: 'colorShort', label: 'Color corto',      type: 'color' },
+      { key: 'tolerance',  label: 'Tolerancia %',  type: 'number', min: 0.002, max: 0.05, step: 0.002 },
+      { key: 'minTouches', label: 'Toques mín.',   type: 'number', min: 1, max: 10, step: 1 },
+      { key: 'showLong',   label: 'Mostrar largo', type: 'select', options: [{ v: 'si', l: 'Sí' }, { v: 'no', l: 'No' }] },
+      { key: 'winLong',    label: 'Ventana largo', type: 'number', min: 10, max: 60, step: 1 },
+      { key: 'countLong',  label: 'Niveles largo', type: 'number', min: 0, max: 8, step: 1 },
+      { key: 'showMid',    label: 'Mostrar medio', type: 'select', options: [{ v: 'si', l: 'Sí' }, { v: 'no', l: 'No' }] },
+      { key: 'winMid',     label: 'Ventana medio', type: 'number', min: 5,  max: 30, step: 1 },
+      { key: 'countMid',   label: 'Niveles medio', type: 'number', min: 0, max: 8, step: 1 },
+      { key: 'showShort',  label: 'Mostrar corto', type: 'select', options: [{ v: 'si', l: 'Sí' }, { v: 'no', l: 'No' }] },
+      { key: 'winShort',   label: 'Ventana corto', type: 'number', min: 2,  max: 15, step: 1 },
+      { key: 'countShort', label: 'Niveles corto', type: 'number', min: 0, max: 8, step: 1 },
+      { key: 'colorLong',  label: 'Color largo',   type: 'color' },
+      { key: 'colorMid',   label: 'Color medio',   type: 'color' },
+      { key: 'colorShort', label: 'Color corto',   type: 'color' },
     ],
     summary: () => 'S/R',
     calc: (candles, p) => {
@@ -145,9 +150,9 @@
 
       // Largo primero (se dibujan todos juntos; el orden no afecta el render)
       const lines = [
-        ...build(detect(p.winLong),  p.countLong,  p.colorLong,  'LP'),
-        ...build(detect(p.winMid),   p.countMid,   p.colorMid,   'MP'),
-        ...build(detect(p.winShort), p.countShort, p.colorShort, 'CP'),
+        ...(p.showLong  !== 'no' ? build(detect(p.winLong),  p.countLong,  p.colorLong,  'LP') : []),
+        ...(p.showMid   !== 'no' ? build(detect(p.winMid),   p.countMid,   p.colorMid,   'MP') : []),
+        ...(p.showShort !== 'no' ? build(detect(p.winShort), p.countShort, p.colorShort, 'CP') : []),
       ];
       return [{ kind: 'pricelines', lines }];
     },

@@ -100,6 +100,8 @@
 
     // ── Carga desde DB ────────────────────────────────────────────────────────
     async loadFromDB() {
+      // Asegurar el listener global de captura de alturas (una sola vez)
+      this._initPaneHeightCapture();
       // Limpiar lo que haya
       for (const ind of this._active.slice()) this._teardown(ind);
       this._active = [];
@@ -160,6 +162,11 @@
       this._syncPaneIndexes();   // LWC compacta índices al remover panes
       try { await NS.API.deleteIndicator(id); } catch (e) {}
       Store.setIndicators(this._active);
+    }
+
+    /** Persiste las alturas de pane pendientes. Llamar ANTES de destruir el chart. */
+    flushPaneHeights() {
+      this._capturePaneHeights();
     }
 
     /**
@@ -308,6 +315,71 @@
       if (bandSpec && ind.series.length) {
         ind.bandPrimitive = new BandPrimitive(bandSpec.upper, bandSpec.lower, bandSpec.color);
         try { ind.series[0].attachPrimitive(ind.bandPrimitive); } catch (e) { ind.bandPrimitive = null; }
+      }
+
+      // Pane separado: aplicar altura guardada y observar cambios para persistir
+      if (def.pane === 'separate' && ind.paneIndex > 0) {
+        this._setupPaneHeight(ind);
+      }
+    }
+
+    /**
+     * Aplica el stretch factor guardado del indicador a su pane. La librería
+     * recomienda stretchFactor (proporción relativa) en vez de setHeight para
+     * múltiples panes: setHeight se pisa entre panes (issue #1847), el stretch
+     * factor se normaliza como conjunto (PR #1894).
+     */
+    _setupPaneHeight(ind) {
+      this._scheduleApplyHeights();
+    }
+
+    /** Aplica los stretch factors guardados de TODOS los panes separados. */
+    _scheduleApplyHeights() {
+      if (this._applyScheduled) return;
+      this._applyScheduled = true;
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        this._applyScheduled = false;
+        for (const ind of this._active) {
+          if (!(ind.paneIndex > 0)) continue;
+          const sf = ind.params.paneStretch;
+          if (!sf || sf <= 0) continue;
+          try {
+            const pane = Engine.chart.panes()[ind.paneIndex];
+            if (pane && pane.setStretchFactor) pane.setStretchFactor(sf);
+          } catch (e) {}
+        }
+      }));
+    }
+
+    /**
+     * Captura dirigida por el usuario: al soltar el mouse tras arrastrar un
+     * separador, lee el stretchFactor real de cada pane y persiste los que
+     * cambiaron. Instalado una sola vez.
+     */
+    _initPaneHeightCapture() {
+      if (this._paneCaptureInit) return;
+      this._paneCaptureInit = true;
+      const cont = document.getElementById('chart-container');
+      if (!cont) return;
+      cont.addEventListener('mouseup', () => {
+        setTimeout(() => this._capturePaneHeights(), 60);
+      }, true);
+    }
+
+    _capturePaneHeights() {
+      let panes;
+      try { panes = Engine.chart.panes(); } catch (e) { return; }
+      for (const ind of this._active) {
+        if (!(ind.paneIndex > 0)) continue;
+        const pane = panes[ind.paneIndex];
+        if (!pane || !pane.getStretchFactor) continue;
+        let sf;
+        try { sf = pane.getStretchFactor(); } catch (e) { continue; }
+        if (!sf || sf <= 0) continue;
+        if (Math.abs((ind.params.paneStretch || 0) - sf) > 0.01) {
+          ind.params.paneStretch = sf;
+          NS.API.updateIndicator(ind.id, { params: ind.params }).catch(() => {});
+        }
       }
     }
 
