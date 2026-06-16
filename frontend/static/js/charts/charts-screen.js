@@ -36,6 +36,15 @@
         this._booted = true;
       }
 
+      // Panel de watchlist (lateral colapsable)
+      if (NS.WatchlistPanel) {
+        NS.WatchlistPanel.mount();
+        // Mantener el highlight sincronizado con el coin activo
+        Store.on('coin:changed', () => {
+          if (NS.WatchlistPanel._renderRows) NS.WatchlistPanel._renderRows();
+        });
+      }
+
       // Estado inicial (último coin/timeframe)
       const state = await API.getChartState().catch(() => null);
       if (state && state.coin_id) {
@@ -208,6 +217,7 @@
               <div style="text-align:center;"><i class="ti ti-refresh" style="font-size:24px;color:#C9A84C;display:block;margin-bottom:8px;animation:spin 1s linear infinite;"></i><div style="font-size:12px;color:#78716C;">Cargando...</div></div>
             </div>
           </div>
+          <div id="wl-panel-host" style="width:240px;flex-shrink:0;transition:width .15s;"></div>
         </div>
       </div>`;
     },
