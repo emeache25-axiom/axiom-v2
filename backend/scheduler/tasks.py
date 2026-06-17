@@ -80,6 +80,17 @@ async def _run_snapshot(pool) -> None:
         logger.error(f"[scheduler] Error en snapshot: {exc}")
 
 
+async def _run_evaluate_alerts(pool) -> None:
+    """Evalúa alertas de precio y notifica por Telegram."""
+    from backend.services.alert_service import evaluate_alerts
+    try:
+        result = await evaluate_alerts(pool)
+        if result["triggered"]:
+            logger.info(f"[scheduler] Alertas: {result['triggered']} disparada(s)")
+    except Exception as exc:
+        logger.error(f"[scheduler] Error evaluando alertas: {exc}")
+
+
 def start_scheduler(pool) -> None:
     """
     Inicia el scheduler. Llamar una vez al arranque de la app.
@@ -101,6 +112,17 @@ def start_scheduler(pool) -> None:
         name="Régimen snapshot",
         misfire_grace_time=300,   # si se perdió, tiene 5 min para ejecutarse
         coalesce=True,            # si se acumularon, ejecutar solo una vez
+    )
+    # Evaluar alertas de precio cada 1 minuto
+    _scheduler.add_job(
+        _run_evaluate_alerts,
+        trigger="interval",
+        minutes=1,
+        args=[pool],
+        id="alerts_job",
+        name="Evaluar alertas de precio",
+        misfire_grace_time=30,
+        coalesce=True,
     )
 
     # Sync precios cada 6 horas

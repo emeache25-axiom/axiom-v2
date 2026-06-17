@@ -208,6 +208,9 @@
             <i class="ti ti-activity" style="font-size:13px;"></i> Indicadores
             <span id="chart-ind-count" style="background:#C9A84C;color:#0F0E0D;border-radius:10px;padding:1px 5px;font-size:10px;font-weight:700;display:none;">0</span>
           </button>
+          <button onclick="AXIOM.Charts.Alerts.openPanel()" title="Alertas de precio" style="display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:6px;border:0.5px solid #2C2926;background:transparent;color:#78716C;font-size:12px;cursor:pointer;">
+            <i class="ti ti-bell" style="font-size:13px;"></i> Alertas
+          </button>
         </div>
         <div style="position:relative;flex:1;min-height:0;display:flex;border:0.5px solid #2C2926;border-radius:6px;overflow:hidden;background:#0F0E0D;">
           <div id="chart-drawing-toolbar" style="display:flex;flex-direction:column;align-items:center;padding:6px 3px;background:#0F0E0D;border-right:0.5px solid #1A1917;z-index:30;flex-shrink:0;"></div>

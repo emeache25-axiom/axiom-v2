@@ -19,6 +19,7 @@ from backend.api.capital import router as capital_router
 from backend.api.news import router as news_router
 from backend.api.charts import router as charts_router
 from backend.api.watchlist import router as watchlist_router
+from backend.api.alerts import router as alerts_router
 from backend.scheduler.tasks import start_scheduler, stop_scheduler
 
 logging.basicConfig(
@@ -73,6 +74,7 @@ app.include_router(capital_router)
 app.include_router(news_router)
 app.include_router(charts_router)
 app.include_router(watchlist_router)
+app.include_router(alerts_router)
 app.mount("/static", StaticFiles(directory=FRONTEND_DIR / "static"), name="static")
 
 
