@@ -91,6 +91,15 @@ async def _run_evaluate_alerts(pool) -> None:
         logger.error(f"[scheduler] Error evaluando alertas: {exc}")
 
 
+async def _run_bot_cycle(pool) -> None:
+    """Ciclo del bot de paper-trading."""
+    from backend.services.bot_service import run_bot_cycle
+    try:
+        await run_bot_cycle(pool)
+    except Exception as exc:
+        logger.error(f"[scheduler] Error en bot: {exc}")
+
+
 def start_scheduler(pool) -> None:
     """
     Inicia el scheduler. Llamar una vez al arranque de la app.
@@ -122,6 +131,17 @@ def start_scheduler(pool) -> None:
         id="alerts_job",
         name="Evaluar alertas de precio",
         misfire_grace_time=30,
+        coalesce=True,
+    )
+    # Bot de paper-trading cada 5 minutos
+    _scheduler.add_job(
+        _run_bot_cycle,
+        trigger="interval",
+        minutes=5,
+        args=[pool],
+        id="bot_job",
+        name="Bot paper-trading",
+        misfire_grace_time=60,
         coalesce=True,
     )
 
