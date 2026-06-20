@@ -100,6 +100,15 @@ async def _run_bot_cycle(pool) -> None:
         logger.error(f"[scheduler] Error en bot: {exc}")
 
 
+async def _run_strat_cycle(pool) -> None:
+    """Ciclo del bot v2 (estrategias paper-trading)."""
+    from backend.strat.execution_engine import run_cycle
+    try:
+        await run_cycle(pool)
+    except Exception as exc:
+        logger.error(f"[scheduler] Error en bot v2: {exc}")
+
+
 def start_scheduler(pool) -> None:
     """
     Inicia el scheduler. Llamar una vez al arranque de la app.
@@ -187,6 +196,17 @@ def start_scheduler(pool) -> None:
     import asyncio as _asyncio
     _asyncio.get_event_loop().create_task(_run_ohlcv_full_bg(pool))
 
+    # Bot v2 — ciclo de estrategias cada 5 minutos
+    _scheduler.add_job(
+        _run_strat_cycle,
+        trigger="interval",
+        minutes=5,
+        args=[pool],
+        id="strat_job",
+        name="Bot v2 estrategias",
+        misfire_grace_time=60,
+        coalesce=True,
+    )
     _scheduler.start()
     logger.info("[scheduler] Scheduler iniciado — snapshot/60min · precios/6h · categorías/7d · ohlcv/00:01GMT")
 

@@ -1,26 +1,41 @@
 """
-API de Watchlist — AXIOM v2.
+API de Watchlist — AXIOM v2 (modelo de PARES).
+
+La watchlist sigue PARES, no coins. Una fila = un par (base+quote+exchange).
+Solo los pares en mexc/coinex son operables por el bot (campo `operable`).
+
+Cambios clave respecto al modelo viejo:
+  - /search devuelve coins Y sus pares operables (vía pair_discovery)
+  - / (POST) agrega un par concreto (base, quote, exchange, pair_symbol)
+  - cada item expone base/quote/exchange/operable/bot_enabled
 """
 from __future__ import annotations
 import json
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel
 from typing import Optional
+
 from backend.services.price_service import get_prices_batch
+from backend.strat.pair_discovery import discover_pairs
 
 router = APIRouter(prefix="/api/watchlist", tags=["watchlist"])
 
+_OPERABLE_EXCHANGES = ("mexc", "coinex")
 
-class WatchlistAdd(BaseModel):
-    coin_id:  str
-    exchange: str = "coingecko"
-    notes:    Optional[str] = None
+
+class PairAdd(BaseModel):
+    coin_id:     str
+    base:        str
+    quote:       str = "USDT"
+    exchange:    str = "coingecko"
+    pair_symbol: Optional[str] = None      # si no viene, se arma {base}{quote}
+    notes:       Optional[str] = None
 
 
 class WatchlistUpdate(BaseModel):
-    exchange: Optional[str] = None
-    notes:    Optional[str] = None
-    position: Optional[int] = None
+    notes:       Optional[str] = None
+    position:    Optional[int] = None
+    bot_enabled: Optional[bool] = None
 
 
 def _fmt(r) -> dict:
@@ -31,31 +46,37 @@ def _fmt(r) -> dict:
         except Exception:
             sp = None
     return {
-        "id":         r["id"],
-        "coin_id":    r["coin_id"],
-        "symbol":     r["symbol"],
-        "name":       r["name"],
-        "exchange":   r["exchange"],
-        "notes":      r["notes"],
-        "position":   r["position"],
-        "price":      float(r["price"])      if r.get("price")      else None,
-        "change_24h": float(r["change_24h"]) if r.get("change_24h") else None,
-        "change_7d":  float(r["change_7d"])  if r.get("change_7d")  else None,
-        "volume_24h": float(r["volume_24h"]) if r.get("volume_24h") else None,
-        "high_24h":   float(r["high_24h"])   if r.get("high_24h")   else None,
-        "low_24h":    float(r["low_24h"])    if r.get("low_24h")    else None,
-        "image":      r.get("image"),
-        "sparkline":  sp or [],
+        "id":          r["id"],
+        "coin_id":     r["coin_id"],
+        "base":        r["base"],
+        "name":        r["name"],
+        "quote":       r["quote"],
+        "exchange":    r["exchange"],
+        "pair_symbol": r["pair_symbol"],
+        "operable":    r["operable"],
+        "bot_enabled": r["bot_enabled"],
+        "notes":       r["notes"],
+        "position":    r["position"],
+        "price":       float(r["price"])      if r.get("price")      else None,
+        "change_24h":  float(r["change_24h"]) if r.get("change_24h") else None,
+        "change_7d":   float(r["change_7d"])  if r.get("change_7d")  else None,
+        "volume_24h":  float(r["volume_24h"]) if r.get("volume_24h") else None,
+        "high_24h":    float(r["high_24h"])   if r.get("high_24h")   else None,
+        "low_24h":     float(r["low_24h"])    if r.get("low_24h")    else None,
+        "image":       r.get("image"),
+        "sparkline":   sp or [],
+        # label legible del par para la UI
+        "label":       f"{r['base']}/{r['quote']}",
     }
 
 
 @router.get("/")
 async def get_watchlist(request: Request):
-    """Lista completa con precios actuales."""
+    """Lista de pares con precios actuales."""
     async with request.app.state.db_pool.acquire() as conn:
         rows = await conn.fetch("""
-            SELECT w.id, w.coin_id, w.symbol, w.name, w.exchange,
-                   w.notes, w.position,
+            SELECT w.id, w.coin_id, w.base, w.name, w.quote, w.exchange,
+                   w.pair_symbol, w.operable, w.bot_enabled, w.notes, w.position,
                    c.price, c.change_24h, c.change_7d, c.volume_24h,
                    c.image, c.sparkline
             FROM watchlist w
@@ -64,11 +85,23 @@ async def get_watchlist(request: Request):
         """)
 
     items = [dict(r) for r in rows]
-
-    # Obtener precios frescos desde exchanges
+    # get_prices_batch espera la clave 'symbol'; en el modelo de pares el
+    # símbolo base vive en 'base'. Alias para compatibilidad.
+    for it in items:
+        it["symbol"] = it["base"]
     prices = await get_prices_batch(items, request.app.state.db_pool)
-
-    return {"items": [_fmt(p) for p in prices]}
+    # mezclar precios por id
+    pmap = {p["id"]: p for p in prices}
+    out = []
+    for it in items:
+        merged = {**it, **{k: pmap.get(it["id"], {}).get(k) for k in
+                  ("price", "change_24h", "high_24h", "low_24h")}}
+        # conservar los de coins si batch no trajo
+        for k in ("price", "change_24h", "change_7d", "volume_24h", "image", "sparkline"):
+            if merged.get(k) is None and it.get(k) is not None:
+                merged[k] = it[k]
+        out.append(_fmt(merged))
+    return {"items": out}
 
 
 @router.get("/prices")
@@ -76,14 +109,12 @@ async def get_watchlist_prices(request: Request):
     """Solo precios — para polling cada 15s."""
     async with request.app.state.db_pool.acquire() as conn:
         rows = await conn.fetch("""
-            SELECT w.id, w.coin_id, w.symbol, w.exchange
+            SELECT w.id, w.coin_id, w.base AS symbol, w.exchange
             FROM watchlist w
             ORDER BY w.position ASC
         """)
-
     items = [dict(r) for r in rows]
     prices = await get_prices_batch(items, request.app.state.db_pool)
-
     return {"prices": [
         {
             "id":         p["id"],
@@ -99,84 +130,83 @@ async def get_watchlist_prices(request: Request):
 
 
 @router.post("/")
-async def add_to_watchlist(request: Request, body: WatchlistAdd):
-    """Agregar coin a la watchlist."""
-    async with request.app.state.db_pool.acquire() as conn:
-        # Verificar que la coin existe
-        coin = await conn.fetchrow(
-            "SELECT id, symbol, name FROM coins WHERE id = $1", body.coin_id
-        )
-        if not coin:
-            raise HTTPException(status_code=404, detail="Coin no encontrada")
+async def add_pair(request: Request, body: PairAdd):
+    """Agregar un par a la watchlist."""
+    quote = body.quote.upper()
+    base = body.base.upper()
+    pair_symbol = (body.pair_symbol or f"{base}{quote}").upper()
+    operable = body.exchange in _OPERABLE_EXCHANGES
 
-        # Verificar que no está ya en la watchlist
+    async with request.app.state.db_pool.acquire() as conn:
+        coin = await conn.fetchrow("SELECT id, name FROM coins WHERE id = $1", body.coin_id)
+        if not coin:
+            raise HTTPException(404, "Coin no encontrada")
+
         exists = await conn.fetchval(
-            "SELECT id FROM watchlist WHERE coin_id = $1", body.coin_id
+            "SELECT id FROM watchlist WHERE coin_id=$1 AND quote=$2 AND exchange=$3",
+            body.coin_id, quote, body.exchange
         )
         if exists:
-            raise HTTPException(status_code=409, detail="Coin ya está en la watchlist")
+            raise HTTPException(409, "Ese par ya está en la watchlist")
 
-        # Obtener la posición máxima
         max_pos = await conn.fetchval("SELECT COALESCE(MAX(position), 0) FROM watchlist")
-
         row = await conn.fetchrow("""
-            INSERT INTO watchlist (coin_id, symbol, name, exchange, notes, position)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            RETURNING id, coin_id, symbol, name, exchange, notes, position
-        """, body.coin_id, coin["symbol"].upper(), coin["name"],
-            body.exchange, body.notes, max_pos + 1)
+            INSERT INTO watchlist
+                (coin_id, base, name, quote, exchange, pair_symbol, operable, notes, position)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+            RETURNING id, coin_id, base, name, quote, exchange, pair_symbol,
+                      operable, bot_enabled, notes, position
+        """, body.coin_id, base, coin["name"], quote, body.exchange,
+            pair_symbol, operable, body.notes, max_pos + 1)
 
     return {"item": dict(row)}
 
 
 @router.put("/{item_id}")
 async def update_watchlist_item(request: Request, item_id: int, body: WatchlistUpdate):
-    """Modificar exchange, notas u orden."""
+    """Modificar notas, orden, o el toggle de bot."""
     async with request.app.state.db_pool.acquire() as conn:
-        row = await conn.fetchrow("SELECT id FROM watchlist WHERE id = $1", item_id)
+        row = await conn.fetchrow("SELECT operable FROM watchlist WHERE id = $1", item_id)
         if not row:
-            raise HTTPException(status_code=404, detail="Item no encontrado")
+            raise HTTPException(404, "Item no encontrado")
 
-        updates = []
-        values  = []
-        i       = 1
-        if body.exchange is not None:
-            updates.append(f"exchange = ${i}"); values.append(body.exchange); i+=1
+        # No permitir activar el bot en pares no operables
+        if body.bot_enabled and not row["operable"]:
+            raise HTTPException(400, "Este par no es operable (solo mexc/coinex)")
+
+        updates, values, i = [], [], 1
         if body.notes is not None:
-            updates.append(f"notes = ${i}"); values.append(body.notes); i+=1
+            updates.append(f"notes = ${i}"); values.append(body.notes); i += 1
         if body.position is not None:
-            updates.append(f"position = ${i}"); values.append(body.position); i+=1
-
+            updates.append(f"position = ${i}"); values.append(body.position); i += 1
+        if body.bot_enabled is not None:
+            updates.append(f"bot_enabled = ${i}"); values.append(body.bot_enabled); i += 1
         if not updates:
-            raise HTTPException(status_code=400, detail="Nada que actualizar")
-
+            raise HTTPException(400, "Nada que actualizar")
         values.append(item_id)
         await conn.execute(
-            f"UPDATE watchlist SET {', '.join(updates)} WHERE id = ${i}",
-            *values
+            f"UPDATE watchlist SET {', '.join(updates)} WHERE id = ${i}", *values
         )
-
     return {"status": "ok"}
 
 
 @router.delete("/{item_id}")
-async def remove_from_watchlist(request: Request, item_id: int):
-    """Eliminar coin de la watchlist."""
+async def remove_pair(request: Request, item_id: int):
     async with request.app.state.db_pool.acquire() as conn:
-        result = await conn.execute(
-            "DELETE FROM watchlist WHERE id = $1", item_id
-        )
+        result = await conn.execute("DELETE FROM watchlist WHERE id = $1", item_id)
     if result == "DELETE 0":
-        raise HTTPException(status_code=404, detail="Item no encontrado")
+        raise HTTPException(404, "Item no encontrado")
     return {"status": "ok"}
 
 
 @router.get("/search")
 async def search_coins(request: Request, q: str = "", limit: int = 10):
-    """Buscar coins para agregar a la watchlist."""
+    """
+    Busca coins y, para cada una, descubre sus pares operables en MEXC/CoinEx.
+    Devuelve la coin + lista de pares disponibles para elegir al agregar.
+    """
     if len(q) < 2:
         return {"results": []}
-
     async with request.app.state.db_pool.acquire() as conn:
         rows = await conn.fetch("""
             SELECT id, symbol, name, image, rank, price
@@ -186,17 +216,28 @@ async def search_coins(request: Request, q: str = "", limit: int = 10):
             LIMIT $3
         """, f"{q}%", f"%{q}%", limit)
 
-    return {"results": [
-        {
+    results = []
+    for r in rows:
+        sym = r["symbol"].upper()
+        try:
+            pairs = await discover_pairs(sym)
+        except Exception:
+            pairs = []
+        # Siempre ofrecer también CoinGecko (solo seguimiento, no operable)
+        pairs.append({
+            "exchange": "coingecko", "base": sym, "quote": "USD",
+            "pair_symbol": sym, "operable": False,
+        })
+        results.append({
             "id":     r["id"],
-            "symbol": r["symbol"],
+            "symbol": sym,
             "name":   r["name"],
             "image":  r["image"],
             "rank":   r["rank"],
             "price":  float(r["price"]) if r["price"] else None,
-        }
-        for r in rows
-    ]}
+            "pairs":  pairs,
+        })
+    return {"results": results}
 
 
 @router.get("/suggested")
@@ -233,7 +274,6 @@ async def screener(
     async with request.app.state.db_pool.acquire() as conn:
 
         if type == "volatility":
-            # Ordenar por columna SQL segura
             order_col = {
                 "avg_range_pct": "cs.avg_range_pct",
                 "pct_velas_ok":  "cs.velas_ok::float / cs.total_velas",
