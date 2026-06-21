@@ -395,7 +395,7 @@ const WatchlistScreen = {
         btn.disabled = true;
       });
     } catch(e) {
-      if (e.message.includes('409')) {
+      if (e.status === 409 || (e.message || '').includes('409')) {
         this._showDialog({
           icon: '<i class="ti ti-info-circle" style="color:var(--cy);"></i>',
           title: 'Ya en watchlist',
@@ -1251,17 +1251,8 @@ const WatchlistScreen = {
           <div id="wl-search-results" style="margin-bottom:12px;"></div>
           <div id="wl-exchange-section" style="display:none;">
             <div style="font-family:var(--f2);font-size:10px;color:var(--t3);
-                        text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px;">Exchange</div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;">
-              ${['binance','mexc','coinex','coingecko'].map(ex => `
-              <button onclick="WatchlistScreen._selectExchange('${ex}')"
-                id="wl-ex-${ex}"
-                style="padding:5px 12px;border-radius:4px;border:0.5px solid var(--w1);
-                       background:transparent;color:var(--t3);font-size:12px;
-                       font-family:var(--f2);cursor:pointer;transition:all .15s;">
-                ${ex}
-              </button>`).join('')}
-            </div>
+                        text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px;">Par disponible</div>
+            <div id="wl-pairs-list" style="display:flex;flex-direction:column;gap:6px;"></div>
           </div>
           <div id="wl-selected-coin" style="display:none;margin-top:12px;"></div>
           <div style="display:flex;gap:8px;margin-top:20px;justify-content:flex-end;">
@@ -1319,6 +1310,36 @@ const WatchlistScreen = {
     </div>`;
   },
 
+  async _addPair(pair) {
+    const r = await fetch('/api/watchlist/', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(pair),
+    });
+    if (!r.ok) {
+      const err = new Error('HTTP ' + r.status);
+      err.status = r.status;
+      throw err;
+    }
+    return r.json();
+  },
+
+  async _toggleBot(id, enable) {
+    try {
+      const r = await fetch(`/api/watchlist/${id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bot_enabled: enable }),
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        alert(err.detail || 'No se pudo cambiar el estado del bot');
+        return;
+      }
+      await this._loadList();
+    } catch (e) {
+      alert('Error de red al cambiar el bot');
+    }
+  },
+
   _renderRow(item) {
     const chg24Color = this._chgColor(item.change_24h);
     const chg7Color  = this._chgColor(item.change_7d);
@@ -1327,7 +1348,7 @@ const WatchlistScreen = {
       : `<div style="width:28px;height:28px;border-radius:50%;background:var(--c3);
            display:flex;align-items:center;justify-content:center;
            font-family:var(--f2);font-size:9px;font-weight:600;color:var(--t2);">
-           ${item.symbol.slice(0,4)}</div>`;
+           ${(item.base || item.symbol || '').slice(0,4)}</div>`;
     return `
     <div id="wl-row-${item.id}"
          style="display:grid;grid-template-columns:1fr 100px 80px 80px 80px 90px 80px;
@@ -1337,7 +1358,7 @@ const WatchlistScreen = {
         <div style="min-width:0;">
           <div style="font-weight:500;color:var(--t1);font-size:13px;
                       white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${item.name}</div>
-          <div style="font-family:var(--f2);font-size:10px;color:var(--t3);">${item.symbol}</div>
+          <div style="font-family:var(--f2);font-size:10px;color:var(--t3);">${item.label || (item.base + '/' + item.quote)}</div>
         </div>
       </div>
       <div class="wl-price" style="font-family:var(--f2);font-size:12px;color:var(--t1);text-align:right;">
@@ -1359,6 +1380,13 @@ const WatchlistScreen = {
         ${item.exchange}
       </div>
       <div style="display:flex;align-items:center;justify-content:center;gap:6px;">
+        ${item.operable
+          ? `<button onclick="WatchlistScreen._toggleBot(${item.id}, ${!item.bot_enabled})" title="${item.bot_enabled ? 'Bot activo — click para desactivar' : 'Activar bot'}"
+               style="border:none;background:transparent;color:${item.bot_enabled ? '#56A14F' : 'var(--t3)'};cursor:pointer;font-size:15px;padding:2px;"
+               onmouseover="this.style.opacity='0.7'" onmouseout="this.style.opacity='1'">
+               <i class="ti ti-robot" aria-hidden="true"></i></button>`
+          : `<span title="Par no operable (solo mexc/coinex)" style="position:relative;display:inline-flex;color:var(--t4);font-size:15px;padding:2px;cursor:not-allowed;">
+               <i class="ti ti-robot-off" aria-hidden="true"></i></span>`}
         <button onclick="WatchlistScreen._editItem(${item.id})" title="Editar"
           style="border:none;background:transparent;color:var(--t3);cursor:pointer;font-size:14px;padding:2px;"
           onmouseover="this.style.color='#F5F0EB'" onmouseout="this.style.color='var(--t3)'">
@@ -1423,24 +1451,49 @@ const WatchlistScreen = {
 
   _selectCoin(coin) {
     this._selectedCoin = coin;
+    this._selectedPair = null;
     document.getElementById('wl-search').value = `${coin.name} (${coin.symbol})`;
     document.getElementById('wl-search-results').innerHTML = '';
     document.getElementById('wl-exchange-section').style.display = 'block';
     document.getElementById('wl-selected-coin').style.display    = 'none';
-    document.getElementById('wl-add-btn').disabled    = false;
-    document.getElementById('wl-add-btn').style.opacity = '1';
-    this._selectExchange('coingecko');
+    document.getElementById('wl-add-btn').disabled    = true;
+    document.getElementById('wl-add-btn').style.opacity = '0.5';
+
+    const pairs = coin.pairs || [];
+    const cont = document.getElementById('wl-pairs-list');
+    if (!pairs.length) {
+      cont.innerHTML = `<div style="color:var(--t3);font-size:12px;">Sin pares detectados.</div>`;
+      return;
+    }
+    cont.innerHTML = pairs.map((p, i) => {
+      const tag = p.operable
+        ? `<span style="font-size:9px;color:#56A14F;border:0.5px solid #2d5a2a;border-radius:3px;padding:1px 5px;">operable</span>`
+        : `<span style="font-size:9px;color:var(--t4);border:0.5px solid var(--w1);border-radius:3px;padding:1px 5px;">seguimiento</span>`;
+      return `<button onclick="WatchlistScreen._selectPair(${i})" id="wl-pair-${i}"
+        style="display:flex;align-items:center;justify-content:space-between;gap:8px;
+               padding:8px 12px;border-radius:6px;border:0.5px solid var(--w1);
+               background:transparent;color:var(--t2);cursor:pointer;width:100%;text-align:left;transition:all .15s;">
+        <span style="font-family:var(--f2);font-size:12px;">${p.base}/${p.quote}
+          <span style="color:var(--t3);text-transform:uppercase;margin-left:6px;">${p.exchange}</span></span>
+        ${tag}
+      </button>`;
+    }).join('');
   },
 
-  _selectExchange(ex) {
-    this._selectedExchange = ex;
-    ['binance','mexc','coinex','coingecko'].forEach(e => {
-      const btn = document.getElementById(`wl-ex-${e}`);
+  _selectPair(idx) {
+    const pairs = this._selectedCoin.pairs || [];
+    const p = pairs[idx];
+    if (!p) return;
+    this._selectedPair = p;
+    (this._selectedCoin.pairs || []).forEach((_, i) => {
+      const btn = document.getElementById(`wl-pair-${i}`);
       if (!btn) return;
-      btn.style.background  = e===ex ? 'var(--cy)' : 'transparent';
-      btn.style.color       = e===ex ? '#fff'       : 'var(--t3)';
-      btn.style.borderColor = e===ex ? 'var(--cy)' : 'var(--w1)';
+      const sel = i === idx;
+      btn.style.borderColor = sel ? 'var(--cy)' : 'var(--w1)';
+      btn.style.background  = sel ? 'rgba(37,99,235,0.12)' : 'transparent';
     });
+    document.getElementById('wl-add-btn').disabled = false;
+    document.getElementById('wl-add-btn').style.opacity = '1';
   },
 
   async _confirmAdd() {
@@ -1448,11 +1501,16 @@ const WatchlistScreen = {
     const btn = document.getElementById('wl-add-btn');
     btn.disabled = true; btn.textContent = 'Agregando...';
     try {
-      await API.addToWatchlist(this._selectedCoin.id, this._selectedExchange);
+      const p = this._selectedPair;
+      await this._addPair({
+        coin_id: this._selectedCoin.id,
+        base: p.base, quote: p.quote,
+        exchange: p.exchange, pair_symbol: p.pair_symbol,
+      });
       this._closeModal();
       await this._loadList();
     } catch(e) {
-      if (e.message.includes('409')) {
+      if (e.status === 409 || (e.message || '').includes('409')) {
         btn.textContent = 'Ya está en la lista';
         setTimeout(() => { btn.textContent = 'Agregar'; btn.disabled = false; }, 2000);
       } else {

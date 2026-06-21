@@ -20,9 +20,9 @@
   const WL = {
     list:   () => fetch('/api/watchlist/').then((r) => r.json()),
     prices: () => fetch('/api/watchlist/prices').then((r) => r.json()),
-    add:    (coinId, exchange) => fetch('/api/watchlist/', {
+    add:    (pair) => fetch('/api/watchlist/', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ coin_id: coinId, exchange: exchange || 'coingecko' }),
+      body: JSON.stringify(pair),
     }).then((r) => r.json()),
     remove: (id) => fetch(`/api/watchlist/${id}`, { method: 'DELETE' }).then((r) => r.json()),
     search: (q) => fetch(`/api/watchlist/search?q=${encodeURIComponent(q)}&limit=8`).then((r) => r.json()),
@@ -133,11 +133,11 @@
         const chgTxt = chg != null ? `${up ? '+' : ''}${chg.toFixed(2)}%` : '';
         const spark = this._sparkline(it.sparkline, up);
         const isActive = it.coin_id === activeId;
-        return `<div class="wl-row" data-id="${it.coin_id}" data-name="${it.name}" data-sym="${it.symbol}" data-item="${it.id}"
+        return `<div class="wl-row" data-id="${it.coin_id}" data-name="${it.name}" data-sym="${it.base || it.symbol}" data-item="${it.id}"
           style="display:flex;align-items:center;gap:6px;padding:7px 10px;cursor:pointer;border-bottom:0.5px solid #1A1917;
           background:${isActive ? '#1A1917' : 'transparent'};position:relative;">
           <div style="flex:1;min-width:0;">
-            <div style="font-size:12px;font-weight:600;color:#F5F0EB;">${(it.symbol || '').toUpperCase()}</div>
+            <div style="font-size:12px;font-weight:600;color:#F5F0EB;">${it.label || (it.base || it.symbol || '').toUpperCase()}</div>
             <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#A8A29E;">${price}</div>
           </div>
           ${spark}
@@ -203,7 +203,7 @@
           const data = await WL.search(q);
           const results = data.results || [];
           res.innerHTML = results.map((c) => `
-            <div class="wl-sr" data-id="${c.id}"
+            <div class="wl-sr" data-id="${c.id}" data-sym="${(c.symbol || '').toUpperCase()}"
               style="display:flex;align-items:center;gap:6px;padding:6px 4px;cursor:pointer;border-bottom:0.5px solid #1A1917;">
               ${c.image ? `<img src="${c.image}" style="width:16px;height:16px;border-radius:50%;">` : ''}
               <span style="font-size:12px;color:#F5F0EB;">${c.name}</span>
@@ -211,7 +211,9 @@
             </div>`).join('');
           res.querySelectorAll('.wl-sr').forEach((el) => {
             el.onclick = async () => {
-              await WL.add(el.dataset.id).catch(() => {});
+              const sym = el.dataset.sym || '';
+              await WL.add({ coin_id: el.dataset.id, base: sym, quote: 'USDT',
+                             exchange: 'coingecko', pair_symbol: sym }).catch(() => {});
               document.getElementById('wl-search-input').value = '';
               res.innerHTML = '';
               this._toggleSearch();
