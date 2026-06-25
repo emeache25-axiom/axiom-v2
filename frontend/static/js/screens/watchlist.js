@@ -1323,6 +1323,23 @@ const WatchlistScreen = {
     return r.json();
   },
 
+  _openInCharts(id) {
+    const it = (this.items || []).find(x => x.id === id);
+    if (!it) return;
+    const CS = window.Screens && window.Screens.charts;
+    if (!CS) return;
+    const ex = (it.exchange === 'mexc' || it.exchange === 'coinex') ? it.exchange : undefined;
+    CS._pendingPair = {
+      coinId: it.coin_id,
+      name: it.name,
+      symbol: it.base,
+      image: it.image,
+      exchange: ex,
+      exSymbol: ex ? it.pair_symbol : undefined,
+    };
+    Router.go('charts');
+  },
+
   async _toggleBot(id, enable) {
     try {
       const r = await fetch(`/api/watchlist/${id}`, {
@@ -1351,6 +1368,8 @@ const WatchlistScreen = {
            ${(item.base || item.symbol || '').slice(0,4)}</div>`;
     return `
     <div id="wl-row-${item.id}"
+         ondblclick="WatchlistScreen._openInCharts(${item.id})"
+         title="Doble clic para ver en Gráficos"
          style="display:grid;grid-template-columns:1fr 100px 80px 80px 80px 90px 80px;
                 gap:8px;padding:10px 16px;border-bottom:0.5px solid var(--w1);align-items:center;">
       <div style="display:flex;align-items:center;gap:8px;min-width:0;">

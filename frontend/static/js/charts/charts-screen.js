@@ -46,6 +46,15 @@
       }
 
       // Estado inicial (último coin/timeframe)
+      if (this._pendingPair) {
+        const pp = this._pendingPair;
+        this._pendingPair = null;
+        Store.setCoin({ id: pp.coinId, name: pp.name, symbol: pp.symbol,
+                        image: pp.image, exchange: pp.exchange, exSymbol: pp.exSymbol });
+        this._updateTfButtons();
+        await this._loadChart();
+        return;
+      }
       const state = await API.getChartState().catch(() => null);
       if (state && state.coin_id) {
         Store.setCoin({ id: state.coin_id });
