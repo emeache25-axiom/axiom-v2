@@ -67,8 +67,14 @@ def run_backtest(strategy, params: dict, candles: list[dict], *,
     trades = []              # trades cerrados
     equity_curve = []
 
+    # Ventana deslizante acotada: la estrategia solo necesita las últimas
+    # `win_size` velas (lookback + margen de warmup). Usar candles[:i+1] haría
+    # el backtest O(n²) porque recalcularía features sobre todo el histórico en
+    # cada paso. Con ventana fija el costo por vela es constante → O(n).
+    win_size = max(strategy.lookback, 50) + 50
     for i in range(warmup, len(candles)):
-        window = candles[:i + 1]          # la estrategia solo ve hasta acá
+        lo = max(0, i + 1 - win_size)
+        window = candles[lo:i + 1]        # pasado reciente, nunca el futuro
         ctx = FeatureContext(window)
         price = ctx.price
         if price is None:
