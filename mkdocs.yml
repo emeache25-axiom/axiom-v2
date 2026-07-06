@@ -1,0 +1,57 @@
+site_name: CODE — AXIOM Quant
+site_description: Corpus de diseño del sistema cuantitativo de AXIOM
+site_url: https://axiom.decentralia.com.ar/docs/
+docs_dir: docs
+
+theme:
+  name: material
+  language: es
+  palette:
+    # Modo oscuro (pega con la estética Stone Dark de AXIOM)
+    - scheme: slate
+      primary: blue grey
+      accent: blue
+      toggle:
+        icon: material/weather-night
+        name: Cambiar a modo claro
+    - scheme: default
+      primary: blue grey
+      accent: blue
+      toggle:
+        icon: material/weather-sunny
+        name: Cambiar a modo oscuro
+  features:
+    - navigation.instant      # navegación sin recargar
+    - navigation.tracking     # la URL sigue la sección
+    - navigation.top          # botón "volver arriba"
+    - navigation.sections     # agrupa secciones en el menú lateral
+    - toc.integrate           # tabla de contenidos integrada
+    - search.suggest          # sugerencias en el buscador
+    - search.highlight        # resalta resultados
+    - content.code.copy       # botón copiar en bloques de código
+
+markdown_extensions:
+  - admonition                # cajas de nota/aviso/warning
+  - pymdownx.details
+  - pymdownx.superfences      # bloques de código mejorados
+  - pymdownx.highlight
+  - tables
+  - toc:
+      permalink: true
+
+# Navegación: el orden y agrupación del menú lateral.
+# Editá esto a medida que agregues documentos.
+nav:
+  - Inicio: index.md
+  - Corpus CODE:
+    - DOC-00 · Master: code/DOC-00_MASTER.md
+    - DOC-01 · Data Layer: code/DOC-01_DATA_LAYER.md
+    - DOC-02 · DNA Engine: code/DOC-02_DNA_ENGINE.md
+    - DOC-03 · State Engine: code/DOC-03_STATE_ENGINE.md
+    - DOC-04 · Edge Engine: code/DOC-04_EDGE_ENGINE.md
+    - DOC-05 · Universe Engine: code/DOC-05_UNIVERSE_ENGINE.md
+    - DOC-06 · Portfolio Engine: code/DOC-06_PORTFOLIO_ENGINE.md
+    - DOC-07 · Exit y Ejecución: code/DOC-07_EXIT_EXECUTION.md
+    - Hallazgos:
+      - FINDINGS-01 · Hallazgos empíricos: code/FINDINGS-01_HALLAZGOS_EMPIRICOS.md
+      - FINDINGS-02 · Contexto y régimen: code/FINDINGS-02_CONTEXTO_REGIMEN_PERSISTENCIA.md
