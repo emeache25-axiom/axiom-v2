@@ -33,3 +33,4 @@ uploads/
 # PostgreSQL dumps
 *.sql.gz
 site/
+mkdocs-setup.tar.gz
