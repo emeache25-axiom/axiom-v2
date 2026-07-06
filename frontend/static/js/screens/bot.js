@@ -56,6 +56,7 @@ const BotScreen = (function () {
     { id: 'activas', label: 'Activas' },
     { id: 'stats', label: 'Estadísticas' },
     { id: 'backtest', label: 'Backtesting' },
+    { id: 'orderbook', label: 'Order Book' },
   ];
 
   return {
@@ -77,7 +78,8 @@ const BotScreen = (function () {
 
     onLeave() {
       if (this._pollTimer) { clearInterval(this._pollTimer); this._pollTimer = null; }
-    },
+      window.AXIOM?.BotOrderBook?._stopPolling(); 
+   },
 
     _renderShell() {
       const el = document.getElementById('screen-bot');
@@ -104,7 +106,25 @@ const BotScreen = (function () {
       else if (tab === 'backtest') this._renderBacktestLab();
     },
 
-    // ── TAB 1 — ACTIVAS ──────────────────────────────────────────────
+   _switchTab(tab) {
+      // al salir de la tab order book, cortar su refresco
+      if (this._tab === 'orderbook' && tab !== 'orderbook') {
+        window.AXIOM?.BotOrderBook?._stopPolling();
+      }
+      this._tab = tab;
+      TABS.forEach(t => {
+        const btn = document.getElementById(`bot-tab-${t.id}`);
+        if (btn) {
+          const active = t.id === tab;
+          btn.style.borderBottomColor = active ? '#2563EB' : 'transparent';
+          btn.style.color = active ? 'var(--t1)' : 'var(--t3)';
+        }
+      });
+      if (tab === 'activas') this._renderActivas();
+      else if (tab === 'stats') this._renderStats();
+      else if (tab === 'backtest') this._renderBacktestLab();
+      else if (tab === 'orderbook') window.AXIOM.BotOrderBook.render('bot-tab-content');
+    },    // ── TAB 1 — ACTIVAS ──────────────────────────────────────────────
     async _renderActivas() {
       const cont = document.getElementById('bot-tab-content');
       cont.innerHTML = `

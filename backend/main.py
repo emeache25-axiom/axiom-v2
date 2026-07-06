@@ -24,6 +24,7 @@ from backend.strat import load_strategies
 from backend.api.alerts import router as alerts_router
 from backend.api.bot import router as bot_router
 from backend.scheduler.tasks import start_scheduler, stop_scheduler
+from backend.api.orderbook import router as orderbook_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -58,6 +59,10 @@ async def lifespan(app: FastAPI):
     )
     logging.info("[AXIOM v2] Pool de PostgreSQL inicializado")
     start_scheduler(app.state.db_pool)
+    import asyncio
+    from backend.services.orderbook_capture import run_capture
+    app.state.ob_task = asyncio.create_task(run_capture(app.state.db_pool))
+    logging.info("[AXIOM v2] Capturador de order book iniciado")
     yield
     stop_scheduler()
     await app.state.db_pool.close()
@@ -81,6 +86,7 @@ app.include_router(strat_router)
 load_strategies()
 app.include_router(alerts_router)
 app.include_router(bot_router)
+app.include_router(orderbook_router)
 app.mount("/static", StaticFiles(directory=FRONTEND_DIR / "static"), name="static")
 
 

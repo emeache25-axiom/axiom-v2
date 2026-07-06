@@ -32,3 +32,4 @@ uploads/
 
 # PostgreSQL dumps
 *.sql.gz
+site/
