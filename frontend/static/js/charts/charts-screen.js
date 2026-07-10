@@ -158,9 +158,24 @@
     _updateHeader() {
       const nameEl = document.getElementById('chart-coin-name');
       if (nameEl) nameEl.textContent = `${Store.coin.name || Store.coin.id} · ${(Store.coin.symbol || '').toUpperCase()}`;
+
+      // Seguimiento en caliente del par del gráfico (source="chart").
+      const coin = Store.coin;
+      const ex = coin.exchange, sym = coin.exSymbol;
+      const prev = this._chartTracked;
+      if (prev && (prev.exchange !== ex || prev.exSymbol !== sym)) {
+        window.AXIOM.PriceService.untrack(prev.exchange, prev.exSymbol, 'chart');
+        this._chartTracked = null;
+      }
+      if (ex && sym && ex !== 'coingecko') {
+        let q = null;
+        const S = sym.toUpperCase();
+        for (const suf of ['USDT','USDC','BTC','ETH','USD']) { if (S.endsWith(suf)) { q = suf; break; } }
+        window.AXIOM.PriceService.track(ex, sym, coin.id, q, 'chart');
+        this._chartTracked = { exchange: ex, exSymbol: sym };
+      }
+
       // Precio de la fuente única (PriceService), mismo dato que las listas.
-      // Usamos ChartsScreen directo (no 'this') porque el callback se invoca
-      // desde el PriceService y 'this' no estaría ligado a la pantalla.
       ChartsScreen._paintHeaderPrice(window.AXIOM.PriceService.getByCoin(Store.coin.id));
       window.AXIOM.PriceService.subscribe('chart-header', (byCoin) => {
         ChartsScreen._paintHeaderPrice(byCoin[Store.coin.id]);

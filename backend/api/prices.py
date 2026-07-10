@@ -19,8 +19,9 @@ import asyncio
 import json
 import logging
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
 
-from backend.services.price_stream import get_prices
+from backend.services.price_stream import get_prices, track, untrack
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/prices", tags=["prices"])
@@ -37,6 +38,28 @@ async def live_prices():
     """Estado actual de los precios en vivo (REST, para debug/fallback)."""
     prices = get_prices()
     return {"count": len(prices), "prices": list(prices.values())}
+
+
+class TrackReq(BaseModel):
+    exchange:    str
+    pair_symbol: str
+    coin_id:     str | None = None
+    quote:       str | None = None
+    source:      str = "chart"   # "watchlist" | "chart"
+
+
+@router.post("/track")
+async def track_pair(req: TrackReq):
+    """Empieza a seguir un par en caliente (o suma un motivo). Idempotente."""
+    track(req.exchange, req.pair_symbol, req.coin_id, req.source, quote=req.quote)
+    return {"ok": True, "tracking": f"{req.exchange}:{req.pair_symbol.upper()}", "source": req.source}
+
+
+@router.post("/untrack")
+async def untrack_pair(req: TrackReq):
+    """Quita un motivo; si no queda ninguno, deja de seguir el par."""
+    untrack(req.exchange, req.pair_symbol, req.source)
+    return {"ok": True, "released": f"{req.exchange}:{req.pair_symbol.upper()}", "source": req.source}
 
 
 async def _broadcaster():

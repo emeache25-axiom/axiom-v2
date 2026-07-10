@@ -1326,6 +1326,11 @@ const WatchlistScreen = {
       err.status = r.status;
       throw err;
     }
+    // Seguir el par en caliente si el exchange es operable en tiempo real.
+    if (pair.exchange && pair.exchange !== 'coingecko' && pair.pair_symbol) {
+      window.AXIOM.PriceService.track(pair.exchange, pair.pair_symbol,
+                                      pair.coin_id, pair.quote, 'watchlist');
+    }
     return r.json();
   },
 
@@ -1607,7 +1612,12 @@ const WatchlistScreen = {
         { label: 'Cancelar', style: 'secondary', action: () => this._closeDialog() },
         { label: '<i class="ti ti-trash"></i> Eliminar', style: 'danger', action: async () => {
             this._closeDialog();
+            const it = this.items.find(i => i.id === id);
             await API.removeFromWatchlist(id);
+            // Dejar de seguir el par (quita el motivo "watchlist").
+            if (it && it.exchange && it.exchange !== 'coingecko' && it.pair_symbol) {
+              window.AXIOM.PriceService.untrack(it.exchange, it.pair_symbol, 'watchlist');
+            }
             this.items = this.items.filter(i => i.id !== id);
             const row = document.getElementById(`wl-row-${id}`);
             if (row) row.remove();

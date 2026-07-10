@@ -100,6 +100,26 @@
       }
     },
 
+    /** Pedir al backend que siga un par en caliente (o sume un motivo). */
+    track(exchange, pairSymbol, coinId, quote, source) {
+      if (!exchange || !pairSymbol) return;
+      // solo exchanges operables en tiempo real (coinex/mexc/binance); coingecko no
+      fetch('/api/prices/track', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ exchange, pair_symbol: pairSymbol, coin_id: coinId || null,
+                               quote: quote || null, source: source || 'chart' }),
+      }).catch(() => {});
+    },
+
+    /** Pedir al backend que deje de seguir un par (quita un motivo). */
+    untrack(exchange, pairSymbol, source) {
+      if (!exchange || !pairSymbol) return;
+      fetch('/api/prices/untrack', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ exchange, pair_symbol: pairSymbol, source: source || 'chart' }),
+      }).catch(() => {});
+    },
+
     format(price, quote) {
       if (price == null || price === 0) return '—';
       const q = (quote || 'USDT').toUpperCase();

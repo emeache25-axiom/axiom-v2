@@ -155,7 +155,11 @@
         btn.onclick = async (e) => {
           e.stopPropagation();
           const itemId = +btn.dataset.item;
+          const it = this._items.find((x) => x.id === itemId);
           await WL.remove(itemId).catch(() => {});
+          if (it && it.exchange && it.exchange !== 'coingecko' && it.pair_symbol) {
+            window.AXIOM.PriceService.untrack(it.exchange, it.pair_symbol, 'watchlist');
+          }
           this._items = this._items.filter((x) => x.id !== itemId);
           this._renderRows();
         };
