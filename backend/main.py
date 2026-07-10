@@ -27,6 +27,8 @@ from backend.scheduler.tasks import start_scheduler, stop_scheduler
 from backend.api.orderbook import router as orderbook_router
 from backend.api.prices import router as prices_router
 from backend.services.price_stream import run_price_stream
+from backend.api.candles import router as candles_router
+from backend.api.candles import router as candles_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -87,6 +89,8 @@ app.include_router(charts_router)
 app.include_router(watchlist_router)
 app.include_router(strat_router)
 app.include_router(prices_router)
+app.include_router(candles_router)
+app.include_router(candles_router)
 load_strategies()
 app.include_router(alerts_router)
 app.include_router(bot_router)

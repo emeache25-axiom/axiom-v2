@@ -202,6 +202,8 @@
 
       Coords.setCandles(candles);
       Store.setCandles(candles);
+      // Conectar la vela en vivo (candle_stream) para el par+timeframe actual
+      this.wsConnect();
       return candles;
     }
 
@@ -260,14 +262,19 @@
       return                { type: 'price', precision: 8, minMove: 0.00000001 };
     }
 
-    // ── WebSocket tiempo real ─────────────────────────────────────────────────
+    // ── WebSocket vela en vivo (candle_stream: CoinEx/MEXC/Binance) ─────────────
     wsConnect() {
       this._wsDisconnect();
       const coin = Store.coin;
-      if (!coin.exchange || coin.exchange === 'coingecko') return;
+      const ex  = coin.exchange;
+      const sym = coin.exSymbol;
+      if (!ex || ex === 'coingecko' || !sym) return;
 
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-      const url = `${proto}://${location.host}/api/charts/ws/${coin.id}?timeframe=${Store.timeframe}`;
+      const url = `${proto}://${location.host}/api/candles/ws`
+                + `?exchange=${encodeURIComponent(ex)}`
+                + `&pair=${encodeURIComponent(sym)}`
+                + `&timeframe=${encodeURIComponent(Store.timeframe)}`;
       try {
         this._ws = new WebSocket(url);
       } catch (e) { return; }
@@ -276,46 +283,47 @@
       this._ws.onmessage = (ev) => {
         try {
           const msg = JSON.parse(ev.data);
-          // El backend envía: heartbeat, fallback, o tick (datos en nivel raíz)
-          if (msg.type === 'heartbeat') { this._ws.send('ping'); return; }
-          if (msg.type === 'fallback')  return;
-          if (msg.type === 'tick')      this._onTick(msg);
+          if (msg.type === 'candle') this._onLiveCandle(msg.candle);
+          // type 'unsupported' → este par no tiene vela en vivo; se ignora
         } catch (e) {}
       };
       this._ws.onclose = () => { this._wsReconnect(); };
       this._ws.onerror = () => { try { this._ws.close(); } catch (e) {} };
     }
 
-    _onTick(tick) {
-      // El tick es de Binance kline_1m. Filtramos por símbolo porque el WS
-      // multiplexado puede recibir ticks de otras coins suscritas.
-      const exSym = (Store.coin.exSymbol || '').toUpperCase();
-      if (tick.symbol && exSym && tick.symbol !== exSym) return;
-
+    _onLiveCandle(c) {
+      // c: {time, open, high, low, close, volume} — la vela en curso del par+tf.
+      if (!c || !this._candleSeries) return;
       const n = this._allCandles.length;
       if (!n) return;
       const last = this._allCandles[n - 1];
 
-      // Combinar el tick con la última vela del timeframe actual
-      const updated = {
-        time:  last.time,
-        open:  last.open,
-        high:  Math.max(last.high, tick.high),
-        low:   Math.min(last.low,  tick.low),
-        close: tick.close,
-        volume: tick.volume != null ? tick.volume : last.volume,
+      const candle = {
+        time:  c.time,
+        open:  c.open,
+        high:  c.high,
+        low:   c.low,
+        close: c.close,
+        volume: c.volume != null ? c.volume : 0,
       };
-      try {
-        this._candleSeries.update(updated);
-        this._volumeSeries.update({
-          time: updated.time, value: updated.volume,
-          color: updated.close >= updated.open ? '#56A14F40' : '#D93B3B40',
-        });
-      } catch (e) {}
 
-      this._allCandles[n - 1] = updated;
+      try {
+        this._candleSeries.update(candle);
+        this._volumeSeries.update({
+          time: candle.time, value: candle.volume,
+          color: candle.close >= candle.open ? '#56A14F40' : '#D93B3B40',
+        });
+      } catch (e) { return; }
+
+      // Actualizar el buffer local: si es el mismo período, reemplaza la última;
+      // si es un período nuevo (time mayor), la agrega.
+      if (c.time === last.time) {
+        this._allCandles[n - 1] = candle;
+      } else if (c.time > last.time) {
+        this._allCandles.push(candle);
+      }
       Coords.setCandles(this._allCandles);
-      Store.updateCandle(updated);
+      Store.updateCandle(candle);
     }
 
     _wsReconnect() {
