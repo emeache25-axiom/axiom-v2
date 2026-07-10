@@ -76,6 +76,23 @@ class ExchangeAdapter(ABC):
         self._require("price_rt")
         raise NotImplementedError
 
+    async def watch_prices(self, symbols: list[str],
+                           on_update: Callable[[str, dict], Awaitable[None]]):
+        """Suscribe a MÚLTIPLES pares en UNA sola conexión WebSocket (eficiente
+        para seguir muchos pares — ej. 100 de la watchlist — sin abrir 100
+        conexiones). Llama on_update(pair_symbol, price) en cada tick, indicando
+        de qué par es. Bloquea (correr como task).
+
+        Implementación por defecto: si el adaptador no la sobrescribe pero soporta
+        price_rt, cae a lanzar un watch_price por par (menos eficiente). Los
+        adaptadores que soportan multi-suscripción nativa (CoinEx, MEXC) la
+        sobrescriben con una sola conexión."""
+        self._require("price_rt")
+        import asyncio
+        async def _wrap(sym):
+            await self.watch_price(sym, lambda p: on_update(sym, p))
+        await asyncio.gather(*[_wrap(s) for s in symbols])
+
     # ── Velas ─────────────────────────────────────────────────────────────────
     async def get_ohlcv(self, symbol: str, timeframe: str,
                         start_ms: Optional[int] = None,

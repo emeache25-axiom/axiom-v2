@@ -109,7 +109,8 @@ async def get_watchlist_prices(request: Request):
     """Solo precios — para polling cada 15s."""
     async with request.app.state.db_pool.acquire() as conn:
         rows = await conn.fetch("""
-            SELECT w.id, w.coin_id, w.base AS symbol, w.exchange
+            SELECT w.id, w.coin_id, w.base AS symbol, w.exchange,
+                   w.quote, w.pair_symbol
             FROM watchlist w
             ORDER BY w.position ASC
         """)

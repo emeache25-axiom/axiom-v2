@@ -240,6 +240,11 @@
       let url = `/api/charts/history?coin_id=${coinId}&timeframe=${timeframe}&limit=${limit}`;
       if (fromTs) url += `&from_ts=${fromTs}`;
       if (toTs)   url += `&to_ts=${toTs}`;
+      // Enviar el par específico si el Store lo conoce (respeta /BTC vs /USDT)
+      const ex  = Store.coin.exchange;
+      const sym = Store.coin.exSymbol;
+      if (ex  && ex !== 'coingecko') url += `&exchange=${encodeURIComponent(ex)}`;
+      if (sym)                       url += `&ex_symbol=${encodeURIComponent(sym)}`;
       const r = await fetch(url);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       return r.json();

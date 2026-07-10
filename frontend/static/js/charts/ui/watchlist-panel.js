@@ -39,12 +39,18 @@
       if (this._mounted) { this._load(); return; }
       this._mounted = true;
       this._load();
-      // Polling de precios cada 15s
-      this._pollTimer = setInterval(() => this._refreshPrices(), 15000);
+      // Precios: fuente única compartida (mismo dato que watchlist y header)
+      window.AXIOM.PriceService.subscribe('wl-panel', (byCoin) => {
+        for (const it of this._items) {
+          const p = byCoin[it.coin_id];
+          if (p) { it.price = p.price; if (p.change_24h != null) it.change_24h = p.change_24h; }
+        }
+        this._renderRows();
+      });
     }
 
     ,unmount() {
-      if (this._pollTimer) { clearInterval(this._pollTimer); this._pollTimer = null; }
+      window.AXIOM.PriceService.unsubscribe('wl-panel');
     }
 
     ,async _load() {
@@ -53,24 +59,6 @@
         this._items = data.items || [];
       } catch (e) { this._items = []; }
       this.render();
-    }
-
-    ,async _refreshPrices() {
-      // Solo si el panel está visible y montado
-      if (!document.getElementById('wl-panel')) return;
-      try {
-        const data = await WL.prices();
-        const map = {};
-        (data.prices || []).forEach((p) => { map[p.coin_id] = p; });
-        for (const it of this._items) {
-          const p = map[it.coin_id];
-          if (p) {
-            it.price = p.price;
-            it.change_24h = p.change_24h;
-          }
-        }
-        this._renderRows();
-      } catch (e) {}
     }
 
     ,toggle() {
@@ -129,11 +117,11 @@
         const chg = it.change_24h;
         const up = (chg ?? 0) >= 0;
         const col = up ? '#56A14F' : '#D93B3B';
-        const price = it.price != null ? NS.DrawingGeo.fmtPrice(it.price) : '—';
+        const price = it.price != null ? this._fmtPrice(it.price, it.quote) : '—';
         const chgTxt = chg != null ? `${up ? '+' : ''}${chg.toFixed(2)}%` : '';
         const spark = this._sparkline(it.sparkline, up);
         const isActive = it.coin_id === activeId;
-        return `<div class="wl-row" data-id="${it.coin_id}" data-name="${it.name}" data-sym="${it.base || it.symbol}" data-item="${it.id}"
+        return `<div class="wl-row" data-id="${it.coin_id}" data-name="${it.name}" data-sym="${it.base || it.symbol}" data-item="${it.id}" data-exchange="${it.exchange || ''}" data-exsymbol="${it.pair_symbol || ''}"
           style="display:flex;align-items:center;gap:6px;padding:7px 10px;cursor:pointer;border-bottom:0.5px solid #1A1917;
           background:${isActive ? '#1A1917' : 'transparent'};position:relative;">
           <div style="flex:1;min-width:0;">
@@ -156,7 +144,10 @@
         row.onmouseleave = () => { const d = row.querySelector('.wl-del'); if (d) d.style.opacity = '0'; };
         row.onclick = (e) => {
           if (e.target.closest('.wl-del')) return;   // el botón maneja lo suyo
-          NS.Screen._selectCoin(row.dataset.id, row.dataset.name, row.dataset.sym);
+          const exRaw = row.dataset.exchange;
+          const ex = (exRaw === 'mexc' || exRaw === 'coinex') ? exRaw : undefined;
+          const exSym = ex ? (row.dataset.exsymbol || undefined) : undefined;
+          NS.Screen._selectCoin(row.dataset.id, row.dataset.name, row.dataset.sym, null, ex, exSym);
           this._renderRows();   // refrescar el highlight
         };
       });
@@ -169,6 +160,18 @@
           this._renderRows();
         };
       });
+    }
+
+    ,_fmtPrice(n, quote) {
+      if (n == null || n === 0) return '—';
+      const q = (quote || 'USDT').toUpperCase();
+      // Pares no-USDT (ej. /BTC): valor tal cual, con decimales, sin $.
+      if (q !== 'USDT' && q !== 'USDC' && q !== 'USD') {
+        let s = n.toFixed(10).replace(/0+$/, '').replace(/\.$/, '');
+        return `${s} ${q}`;
+      }
+      // /USDT: reusar el formateo de precio del chart si existe
+      try { return NS.DrawingGeo.fmtPrice(n); } catch (e) { return '$' + n; }
     }
 
     ,_sparkline(data, up) {

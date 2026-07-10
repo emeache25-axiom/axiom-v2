@@ -93,16 +93,25 @@ class CoinEx(ExchangeAdapter):
     # ── Precio en tiempo real (WS) ────────────────────────────────────────────
     async def watch_price(self, symbol: str,
                           on_update: Callable[[dict], Awaitable[None]]):
+        symbol = symbol.upper()
+        async def _routed(pair, price):
+            await on_update(price)
+        await self.watch_prices([symbol], _routed)
+
+    async def watch_prices(self, symbols, on_update):
+        """Multi-par en UNA conexión. state.subscribe acepta market_list con
+        varios mercados; state.update trae state_list con el 'market' de cada uno,
+        así ruteamos cada precio a su par vía on_update(pair_symbol, price)."""
         if websockets is None:
             raise RuntimeError("falta la librería 'websockets'")
-        symbol = symbol.upper()
+        markets = [s.upper() for s in symbols]
         backoff = 2
         while True:
             try:
                 async with websockets.connect(_WS, ping_interval=None, max_size=2**22) as ws:
                     await ws.send(json.dumps({
                         "method": "state.subscribe",
-                        "params": {"market_list": [symbol]},
+                        "params": {"market_list": markets},
                         "id": 1,
                     }))
                     ping = asyncio.create_task(self._ping_loop(ws))
@@ -116,14 +125,14 @@ class CoinEx(ExchangeAdapter):
                             if msg.get("method") != "state.update":
                                 continue
                             data = msg.get("data") or {}
-                            state_list = data.get("state_list") or []
-                            for st in state_list:
-                                if st.get("market") != symbol:
+                            for st in (data.get("state_list") or []):
+                                mkt = st.get("market")
+                                if not mkt:
                                     continue
                                 last = float(st["last"])
                                 open_ = float(st.get("open", 0)) or None
                                 change = round((last - open_) / open_ * 100, 2) if open_ else None
-                                await on_update(self._price_obj(
+                                await on_update(mkt, self._price_obj(
                                     price=last, bid=last, ask=last,
                                     change_24h=change,
                                     high_24h=float(st["high"]) if st.get("high") else None,
@@ -134,7 +143,7 @@ class CoinEx(ExchangeAdapter):
                     finally:
                         ping.cancel()
             except Exception as e:
-                logger.warning(f"[coinex.watch_price] {symbol} caído: {e}; reconecta en {backoff}s")
+                logger.warning(f"[coinex.watch_prices] {markets} caído: {e}; reconecta en {backoff}s")
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, 60)
 

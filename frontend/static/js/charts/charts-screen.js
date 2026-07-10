@@ -57,7 +57,11 @@
       }
       const state = await API.getChartState().catch(() => null);
       if (state && state.coin_id) {
-        Store.setCoin({ id: state.coin_id });
+        Store.setCoin({
+          id:       state.coin_id,
+          exchange: state.exchange  || null,
+          exSymbol: state.ex_symbol || null,
+        });
         Store.setTimeframe(state.timeframe || '1d');
       }
       this._updateTfButtons();
@@ -66,6 +70,7 @@
     },
 
     onLeave() {
+      this._stopPricePolling();
       NS.IndicatorManager.flushPaneHeights();
       NS.DrawingManager.destroy();
       Engine.destroyChart();
@@ -151,14 +156,32 @@
 
     // ── Header / estado ────────────────────────────────────────────────────────────
     _updateHeader() {
-      const c = Store.candles;
-      const last = c.length ? c[c.length - 1] : null;
       const nameEl = document.getElementById('chart-coin-name');
       if (nameEl) nameEl.textContent = `${Store.coin.name || Store.coin.id} · ${(Store.coin.symbol || '').toUpperCase()}`;
-      if (last) {
-        const priceEl = document.getElementById('chart-coin-price');
-        if (priceEl) priceEl.textContent = NS.DrawingGeo.fmtPrice(last.close);
+      // Precio de la fuente única (PriceService), mismo dato que las listas.
+      // Usamos ChartsScreen directo (no 'this') porque el callback se invoca
+      // desde el PriceService y 'this' no estaría ligado a la pantalla.
+      ChartsScreen._paintHeaderPrice(window.AXIOM.PriceService.getByCoin(Store.coin.id));
+      window.AXIOM.PriceService.subscribe('chart-header', (byCoin) => {
+        ChartsScreen._paintHeaderPrice(byCoin[Store.coin.id]);
+      });
+    },
+
+    _paintHeaderPrice(entry) {
+      const priceEl = document.getElementById('chart-coin-price');
+      if (!priceEl || !entry || entry.price == null) return;
+      const q = (entry.quote || 'USDT').toUpperCase();
+      if (q !== 'USDT' && q !== 'USDC' && q !== 'USD') {
+        const s = Number(entry.price).toFixed(10).replace(/0+$/, '').replace(/\.$/, '');
+        priceEl.textContent = `${s} ${q}`;
+      } else {
+        try { priceEl.textContent = NS.DrawingGeo.fmtPrice(entry.price); }
+        catch (e) { priceEl.textContent = '$' + entry.price; }
       }
+    },
+
+    _stopPricePolling() {
+      window.AXIOM.PriceService.unsubscribe('chart-header');
     },
 
     _updateTfButtons() {

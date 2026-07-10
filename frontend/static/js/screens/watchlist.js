@@ -49,37 +49,36 @@ const WatchlistScreen = {
     }
   },
 
-  // ── Polling (lista) ────────────────────────────────────────────────────────
+  // ── Precios (fuente única: PriceService por WebSocket) ──────────────────────
   _startPolling() {
     this._stopPolling();
-    this.pollInterval = setInterval(() => this._pollPrices(), this.POLL_MS);
+    // Suscripción a la fuente única. El callback recibe {coin_id: {price,quote,...}}
+    window.AXIOM.PriceService.subscribe('watchlist', (byCoin) => this._applyPrices(byCoin));
   },
   _stopPolling() {
-    if (this.pollInterval) { clearInterval(this.pollInterval); this.pollInterval = null; }
+    window.AXIOM.PriceService.unsubscribe('watchlist');
   },
 
-  async _pollPrices() {
+  _applyPrices(byCoin) {
     if (!this.items.length) return;
-    try {
-      const data = await API.getWatchlistPrices();
-      data.prices.forEach(p => {
-        const row = document.getElementById(`wl-row-${p.id}`);
-        if (!row) return;
+    this.items.forEach(item => {
+      const p = byCoin[item.coin_id];
+      if (!p) return;
+      const row = document.getElementById(`wl-row-${item.id}`);
+      if (row) {
         const priceEl  = row.querySelector('.wl-price');
         const changeEl = row.querySelector('.wl-change');
-        const exchEl   = row.querySelector('.wl-exchange');
-        if (priceEl  && p.price      != null) priceEl.textContent  = this._price(p.price);
+        if (priceEl  && p.price != null) priceEl.textContent = this._price(p.price, priceEl.dataset.quote);
         if (changeEl && p.change_24h != null) {
           changeEl.textContent = `${p.change_24h > 0 ? '+' : ''}${p.change_24h.toFixed(2)}%`;
           changeEl.style.color = this._chgColor(p.change_24h);
         }
-        if (exchEl) exchEl.textContent = p.exchange;
-        const item = this.items.find(i => i.id === p.id);
-        if (item) { item.price = p.price; item.change_24h = p.change_24h; item.exchange = p.exchange; }
-      });
-      const ts = document.getElementById('wl-last-update');
-      if (ts) ts.textContent = `Actualizado: ${new Date().toLocaleTimeString('es-AR')}`;
-    } catch(e) { console.warn('[watchlist] poll error:', e.message); }
+      }
+      item.price = p.price;
+      if (p.change_24h != null) item.change_24h = p.change_24h;
+    });
+    const ts = document.getElementById('wl-last-update');
+    if (ts) ts.textContent = `Actualizado: ${new Date().toLocaleTimeString('es-AR')}`;
   },
 
   // ── Tab Lista ──────────────────────────────────────────────────────────────
@@ -1283,8 +1282,15 @@ const WatchlistScreen = {
     return n > 0 ? '#56A14F' : n < 0 ? '#D93B3B' : '#78716C';
   },
 
-  _price(n) {
-    if (!n) return '—';
+  _price(n, quote) {
+    if (n == null || n === 0) return '—';
+    const q = (quote || 'USDT').toUpperCase();
+    // Pares no-USDT (ej. /BTC): mostrar el valor tal cual, con sus decimales,
+    // sin signo $. Para /BTC los precios son muy chicos (0.00000073).
+    if (q !== 'USDT' && q !== 'USDC' && q !== 'USD') {
+      let s = n.toFixed(10).replace(/0+$/, '').replace(/\.$/, '');
+      return `${s} ${q}`;
+    }
     return n >= 1
       ? `$${n.toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2})}`
       : `$${n.toPrecision(4)}`;
@@ -1380,8 +1386,8 @@ const WatchlistScreen = {
           <div style="font-family:var(--f2);font-size:10px;color:var(--t3);">${item.label || (item.base + '/' + item.quote)}</div>
         </div>
       </div>
-      <div class="wl-price" style="font-family:var(--f2);font-size:12px;color:var(--t1);text-align:right;">
-        ${this._price(item.price)}
+      <div class="wl-price" data-quote="${item.quote || 'USDT'}" style="font-family:var(--f2);font-size:12px;color:var(--t1);text-align:right;">
+        ${this._price(item.price, item.quote)}
       </div>
       <div class="wl-change" style="font-family:var(--f2);font-size:12px;font-weight:600;
                                      text-align:right;color:${chg24Color};">

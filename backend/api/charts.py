@@ -14,11 +14,14 @@ from fastapi import APIRouter, Request, HTTPException, WebSocket, WebSocketDisco
 from pydantic import BaseModel
 from typing import Optional
 
+from backend.services.price_service import get_price
+
 router = APIRouter(prefix="/api/charts", tags=["charts"])
 logger = logging.getLogger(__name__)
 
 _BINANCE_BASE = "https://api.binance.com"
 _MEXC_BASE    = "https://api.mexc.com"
+_COINEX_BASE  = "https://api.coinex.com"
 _TIMEOUT      = 10.0
 
 _TF_BINANCE = {
@@ -30,6 +33,11 @@ _TF_MEXC = {
     "5m": "5m", "15m": "15m", "30m": "30m",
     "1h": "60m", "4h": "4h", "1d": "1d",
     "1w": "1W",  "1M": "1M",
+}
+_TF_COINEX = {
+    "5m": "5min", "15m": "15min", "30m": "30min",
+    "1h": "1hour", "4h": "4hour", "1d": "1day",
+    "1w": "1week", "1M": "1month",
 }
 
 
@@ -81,6 +89,33 @@ async def _klines_mexc(symbol: str, interval: str,
         return None
 
 
+async def _klines_coinex(symbol: str, period: str,
+                         start_ms: int | None, end_ms: int | None,
+                         limit: int = 1000) -> list[dict] | None:
+    params: dict = {"market": symbol, "period": period, "limit": min(limit, 1000)}
+    # CoinEx usa segundos en start_time/end_time
+    if start_ms: params["start_time"] = start_ms // 1000
+    if end_ms:   params["end_time"]   = end_ms // 1000
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
+            r = await c.get(f"{_COINEX_BASE}/v2/spot/kline", params=params)
+            if r.status_code != 200:
+                return None
+            body = r.json()
+            if body.get("code") != 0:
+                return None
+            return [
+                {"time":   int(row["created_at"]) // 1000,
+                 "open":   float(row["open"]),  "high":  float(row["high"]),
+                 "low":    float(row["low"]),   "close": float(row["close"]),
+                 "volume": float(row["volume"])}
+                for row in body.get("data", [])
+            ]
+    except Exception as e:
+        logger.debug(f"[charts] coinex klines {symbol}: {e}")
+        return None
+
+
 # ── UDF History endpoint ──────────────────────────────────────────────────────
 
 @router.get("/history")
@@ -91,23 +126,37 @@ async def get_history(
     from_ts:   int  = 0,      # timestamp unix segundos
     to_ts:     int  = 0,
     limit:     int  = 1000,
+    exchange:  Optional[str] = None,   # par específico (opcional, desde el front)
+    ex_symbol: Optional[str] = None,   # símbolo real del par, ej. ONTBTC
 ):
     """
     UDF endpoint: devuelve velas entre from_ts y to_ts.
     Si from_ts=0 → devuelve las últimas `limit` velas.
+
+    Si el frontend envía exchange + ex_symbol, se respeta ESE par exacto
+    (permite distinguir ONT/BTC de ONT/USDT). Si no vienen, se resuelve uno
+    desde coin_exchanges (comportamiento anterior, compatible).
     """
     if timeframe not in _TF_BINANCE:
         raise HTTPException(400, f"Timeframe inválido. Válidos: {list(_TF_BINANCE.keys())}")
     limit = min(max(limit, 10), 1000)
 
+    # ¿el par vino explícito desde el frontend?
+    pair_forzado = bool(ex_symbol)
+
     pool = request.app.state.db_pool
     async with pool.acquire() as conn:
-        ex_row = await conn.fetchrow(
-            "SELECT exchange, symbol FROM coin_exchanges WHERE coin_id=$1 LIMIT 1",
-            coin_id)
         coin_info = await conn.fetchrow(
             "SELECT symbol, name, price, change_24h, image FROM coins WHERE id=$1",
             coin_id)
+        # Solo resolvemos el par si el frontend NO lo especificó.
+        if not pair_forzado:
+            ex_row = await conn.fetchrow(
+                "SELECT exchange, symbol FROM coin_exchanges WHERE coin_id=$1 LIMIT 1",
+                coin_id)
+            if ex_row:
+                exchange  = ex_row["exchange"]
+                ex_symbol = ex_row["symbol"]
 
     if not coin_info:
         raise HTTPException(404, "Coin no encontrada")
@@ -116,8 +165,10 @@ async def get_history(
     end_ms   = to_ts   * 1000 if to_ts   else None
 
     candles = None
-    exchange = ex_row["exchange"] if ex_row else "coingecko"
-    ex_symbol = ex_row["symbol"]  if ex_row else coin_id
+    if not exchange:
+        exchange = "coingecko"
+    if not ex_symbol:
+        ex_symbol = coin_id
 
     if exchange == "binance":
         candles = await _klines_binance(
@@ -130,8 +181,16 @@ async def get_history(
             candles = await _klines_mexc(
                 ex_symbol, tf_mexc, start_ms, end_ms, limit)
 
-    # Fallback: si el exchange asignado falló, intentar el otro
-    if not candles and exchange == "binance":
+    elif exchange == "coinex":
+        tf_cx = _TF_COINEX.get(timeframe)
+        if tf_cx:
+            candles = await _klines_coinex(
+                ex_symbol, tf_cx, start_ms, end_ms, limit)
+
+    # Fallback: si el exchange asignado falló, intentar otro — PERO solo si el
+    # par NO vino forzado desde el frontend (para no mostrar ONT/USDT cuando se
+    # pidió ONT/BTC). Con par forzado, se respeta o se devuelve vacío.
+    if not pair_forzado and not candles and exchange == "binance":
         async with pool.acquire() as conn:
             mx = await conn.fetchrow(
                 "SELECT symbol FROM coin_exchanges WHERE coin_id=$1 AND exchange='mexc'",
@@ -140,7 +199,7 @@ async def get_history(
             candles = await _klines_mexc(
                 mx["symbol"], _TF_MEXC[timeframe], start_ms, end_ms, limit)
 
-    elif not candles and exchange == "mexc":
+    elif not pair_forzado and not candles and exchange == "mexc":
         async with pool.acquire() as conn:
             bn = await conn.fetchrow(
                 "SELECT symbol FROM coin_exchanges WHERE coin_id=$1 AND exchange='binance'",
@@ -159,13 +218,14 @@ async def get_history(
             }
         raise HTTPException(503, "No se pudieron obtener datos OHLCV")
 
-    # Actualizar chart_state
+    # Actualizar chart_state (incluye el par exacto para restaurarlo luego)
     async with pool.acquire() as conn:
         await conn.execute("""
-            INSERT INTO chart_state (id, coin_id, timeframe, updated_at)
-            VALUES (1,$1,$2,now())
-            ON CONFLICT (id) DO UPDATE SET coin_id=$1, timeframe=$2, updated_at=now()
-        """, coin_id, timeframe)
+            INSERT INTO chart_state (id, coin_id, timeframe, exchange, ex_symbol, updated_at)
+            VALUES (1,$1,$2,$3,$4,now())
+            ON CONFLICT (id) DO UPDATE SET
+                coin_id=$1, timeframe=$2, exchange=$3, ex_symbol=$4, updated_at=now()
+        """, coin_id, timeframe, exchange, ex_symbol)
 
     return {
         "coin_id":    coin_id,
@@ -188,10 +248,54 @@ async def get_history(
 @router.get("/state")
 async def get_chart_state(request: Request):
     async with request.app.state.db_pool.acquire() as conn:
-        row = await conn.fetchrow("SELECT coin_id, timeframe FROM chart_state WHERE id=1")
+        row = await conn.fetchrow(
+            "SELECT coin_id, timeframe, exchange, ex_symbol FROM chart_state WHERE id=1")
     return {
         "coin_id":   row["coin_id"]   if row else "bitcoin",
         "timeframe": row["timeframe"] if row else "1d",
+        "exchange":  row["exchange"]  if row else None,
+        "ex_symbol": row["ex_symbol"] if row else None,
+    }
+
+
+@router.get("/price/{coin_id}")
+async def get_current_price(request: Request, coin_id: str):
+    """Último precio del par, de la MISMA fuente que la watchlist (price_service).
+    Permite que el header del gráfico muestre el mismo precio que las listas.
+    Acepta el par explícito para respetar /BTC vs /USDT."""
+    pool = request.app.state.db_pool
+    async with pool.acquire() as conn:
+        # Buscar el par tal como está en la watchlist (para usar el quote correcto)
+        wl = await conn.fetchrow(
+            "SELECT base, quote, exchange, pair_symbol FROM watchlist WHERE coin_id=$1 LIMIT 1",
+            coin_id)
+        coin = await conn.fetchrow(
+            "SELECT symbol, price, change_24h FROM coins WHERE id=$1", coin_id)
+        db_price = {"price": float(coin["price"]) if coin and coin["price"] else None,
+                    "change_24h": float(coin["change_24h"]) if coin and coin["change_24h"] else None}
+
+    if wl:
+        symbol      = wl["base"]
+        exchange    = wl["exchange"]
+        pair_symbol = wl["pair_symbol"]
+        quote       = wl["quote"]
+    else:
+        # no está en watchlist: resolver desde coin_exchanges
+        async with pool.acquire() as conn:
+            ex = await conn.fetchrow(
+                "SELECT exchange, symbol FROM coin_exchanges WHERE coin_id=$1 LIMIT 1", coin_id)
+        symbol      = coin["symbol"] if coin else coin_id
+        exchange    = ex["exchange"] if ex else "coingecko"
+        pair_symbol = ex["symbol"]   if ex else None
+        quote       = None
+
+    price = await get_price(symbol, exchange, db_price,
+                            pair_symbol=pair_symbol, quote=quote)
+    return {
+        "coin_id":    coin_id,
+        "price":      price.get("price"),
+        "change_24h": price.get("change_24h"),
+        "quote":      quote or "USDT",
     }
 
 

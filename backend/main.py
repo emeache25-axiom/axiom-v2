@@ -25,6 +25,8 @@ from backend.api.alerts import router as alerts_router
 from backend.api.bot import router as bot_router
 from backend.scheduler.tasks import start_scheduler, stop_scheduler
 from backend.api.orderbook import router as orderbook_router
+from backend.api.prices import router as prices_router
+from backend.services.price_stream import run_price_stream
 
 logging.basicConfig(
     level=logging.INFO,
@@ -51,7 +53,6 @@ def _inject_version(html: str) -> str:
     html = re.sub(r'(src="/static/[^"]+\.js)"',  rf'\1?v={_CACHE_VER}"', html)
     return html
 
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.db_pool = await asyncpg.create_pool(
@@ -61,13 +62,15 @@ async def lifespan(app: FastAPI):
     start_scheduler(app.state.db_pool)
     import asyncio
     from backend.services.orderbook_capture import run_capture
+    from backend.services.price_stream import run_price_stream
     app.state.ob_task = asyncio.create_task(run_capture(app.state.db_pool))
     logging.info("[AXIOM v2] Capturador de order book iniciado")
+    app.state.price_task = asyncio.create_task(run_price_stream(app.state.db_pool))
+    logging.info("[AXIOM v2] Servicio de precio en vivo iniciado")
     yield
     stop_scheduler()
     await app.state.db_pool.close()
     logging.info("[AXIOM v2] Pool de PostgreSQL cerrado")
-
 
 app = FastAPI(
     title="AXIOM v2",
@@ -83,6 +86,7 @@ app.include_router(news_router)
 app.include_router(charts_router)
 app.include_router(watchlist_router)
 app.include_router(strat_router)
+app.include_router(prices_router)
 load_strategies()
 app.include_router(alerts_router)
 app.include_router(bot_router)
