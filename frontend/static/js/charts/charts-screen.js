@@ -55,13 +55,10 @@
         await this._loadChart();
         return;
       }
+
       const state = await API.getChartState().catch(() => null);
       if (state && state.coin_id) {
-        Store.setCoin({
-          id:       state.coin_id,
-          exchange: state.exchange  || null,
-          exSymbol: state.ex_symbol || null,
-        });
+        Store.setCoin({ id: state.coin_id });
         Store.setTimeframe(state.timeframe || '1d');
       }
       this._updateTfButtons();
@@ -70,7 +67,6 @@
     },
 
     onLeave() {
-      this._stopPricePolling();
       NS.IndicatorManager.flushPaneHeights();
       NS.DrawingManager.destroy();
       Engine.destroyChart();
@@ -133,18 +129,61 @@
       this._searchTimer = setTimeout(async () => {
         try {
           const data = await API.searchCoins(q);
-          const results = data.results || data.coins || [];
-          if (!results.length) { dd.style.display = 'none'; return; }
-          dd.innerHTML = results.map((c) => `
-            <div class="chart-search-item" data-id="${c.id}" data-name="${c.name}" data-sym="${c.symbol}"
-              style="display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;border-bottom:0.5px solid #1A1917;">
-              ${c.image ? `<img src="${c.image}" style="width:18px;height:18px;border-radius:50%;">` : ''}
-              <span style="font-size:12px;color:#F5F0EB;">${c.name}</span>
-              <span style="font-size:10px;color:#78716C;">${(c.symbol || '').toUpperCase()}</span>
-            </div>`).join('');
+          const coins = data.results || data.coins || [];
+          if (!coins.length) { dd.style.display = 'none'; return; }
+
+          // Expandir cada coin a sus pares (una fila por par+exchange),
+          // agrupados por coin con un encabezado. mexc/coinex del mismo par
+          // aparecen como filas separadas (son entradas distintas en `pairs`).
+          let html = '';
+          for (const c of coins) {
+            const sym   = (c.symbol || '').toUpperCase();
+            const pairs = c.pairs || [];
+            if (!pairs.length) continue;
+
+            // Encabezado del grupo (coin)
+            html += `
+              <div style="display:flex;align-items:center;gap:8px;padding:7px 10px 4px;position:sticky;top:0;background:#0F0E0D;">
+                ${c.image ? `<img src="${c.image}" style="width:16px;height:16px;border-radius:50%;">` : ''}
+                <span style="font-size:11px;color:#F5F0EB;font-weight:600;">${c.name}</span>
+                <span style="font-size:9px;color:#57534E;">${sym}</span>
+              </div>`;
+
+            // Una fila por par (base/quote · exchange)
+            for (const p of pairs) {
+              const exLabel = (p.exchange || '').toUpperCase();
+              const quote   = (p.quote || '').toUpperCase();
+              const base    = (p.base || sym).toUpperCase();
+              const dot     = p.operable ? '#56A14F' : '#78716C';
+              html += `
+                <div class="chart-search-item"
+                  data-id="${c.id}"
+                  data-name="${c.name}"
+                  data-sym="${sym}"
+                  data-image="${c.image || ''}"
+                  data-exchange="${p.exchange || ''}"
+                  data-exsymbol="${p.pair_symbol || ''}"
+                  style="display:flex;align-items:center;gap:8px;padding:7px 10px 7px 30px;cursor:pointer;border-bottom:0.5px solid #1A1917;">
+                  <span style="width:6px;height:6px;border-radius:50%;background:${dot};flex:none;"></span>
+                  <span style="font-size:12px;color:#F5F0EB;font-family:'IBM Plex Mono',monospace;">${base}/${quote}</span>
+                  <span style="font-size:9px;color:#78716C;margin-left:auto;">${exLabel}</span>
+                </div>`;
+            }
+          }
+
+          if (!html) { dd.style.display = 'none'; return; }
+          dd.innerHTML = html;
           dd.style.display = 'block';
+
           dd.querySelectorAll('.chart-search-item').forEach((item) => {
-            item.onclick = () => this._selectCoin(item.dataset.id, item.dataset.name, item.dataset.sym);
+            item.onclick = () => this._selectCoin(
+              item.dataset.id,
+              item.dataset.name,
+              item.dataset.sym,
+              item.dataset.image || null,
+              item.dataset.exchange || null,
+              item.dataset.exsymbol || null,
+            );
             item.onmouseover = () => item.style.background = '#2C2926';
             item.onmouseout  = () => item.style.background = 'transparent';
           });
@@ -154,49 +193,89 @@
 
     _openIndicatorsModal() { NS.IndicatorsModal.open(); },
 
+    // ── Agregar el par actual a la watchlist ───────────────────────────────────────
+    // Reusa POST /api/watchlist/ con el par exacto que se está viendo.
+    // El `quote` se deriva del exSymbol (pair_symbol real) respetando el par;
+    // para coingecko se fija en USD (solo seguimiento, no operable).
+    _deriveQuote(exSymbol, base, exchange) {
+      const ex   = (exchange || '').toLowerCase();
+      const sym  = (exSymbol || '').toUpperCase();
+      const b    = (base || '').toUpperCase();
+      if (ex === 'coingecko') return 'USD';
+      // pair_symbol = base + quote  →  quote = lo que sigue al prefijo base
+      if (sym && b && sym.startsWith(b) && sym.length > b.length) {
+        return sym.slice(b.length);
+      }
+      // Fallbacks razonables
+      if (sym.endsWith('USDT')) return 'USDT';
+      if (sym.endsWith('BTC'))  return 'BTC';
+      return 'USDT';
+    },
+
+    async _addCurrentToWatchlist() {
+      const coin = Store.coin || {};
+      const btn  = document.getElementById('chart-add-wl');
+      if (!coin.id) return;
+
+      const base     = (coin.symbol || '').toUpperCase();
+      const exchange = coin.exchange || 'coingecko';
+      const exSymbol = coin.exSymbol || `${base}USDT`;
+      const quote    = this._deriveQuote(exSymbol, base, exchange);
+
+      const setBtn = (icon, color, title) => {
+        if (!btn) return;
+        btn.innerHTML = `<i class="ti ti-${icon}" style="font-size:13px;"></i>`;
+        btn.style.color = color;
+        btn.title = title;
+      };
+
+      setBtn('loader-2', '#78716C', 'Agregando...');
+      try {
+        const r = await fetch('/api/watchlist/', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            coin_id:     coin.id,
+            base,
+            quote,
+            exchange,
+            pair_symbol: exSymbol,
+          }),
+        });
+        if (r.status === 409) {
+          setBtn('check', '#56A14F', 'Ya está en la watchlist');
+          return;
+        }
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        setBtn('check', '#56A14F', 'Agregado a la watchlist');
+        // Refrescar el panel lateral si está montado
+        if (NS.WatchlistPanel && NS.WatchlistPanel._load) {
+          NS.WatchlistPanel._load();
+        }
+      } catch (e) {
+        console.error('[charts] add to watchlist:', e);
+        setBtn('alert-triangle', '#D93B3B', 'Error al agregar');
+        setTimeout(() => setBtn('star', '#78716C', 'Agregar a watchlist'), 2500);
+      }
+    },
+
     // ── Header / estado ────────────────────────────────────────────────────────────
     _updateHeader() {
+      const c = Store.candles;
+      const last = c.length ? c[c.length - 1] : null;
       const nameEl = document.getElementById('chart-coin-name');
       if (nameEl) nameEl.textContent = `${Store.coin.name || Store.coin.id} · ${(Store.coin.symbol || '').toUpperCase()}`;
-
-      // Seguimiento en caliente del par del gráfico (source="chart").
-      const coin = Store.coin;
-      const ex = coin.exchange, sym = coin.exSymbol;
-      const prev = this._chartTracked;
-      if (prev && (prev.exchange !== ex || prev.exSymbol !== sym)) {
-        window.AXIOM.PriceService.untrack(prev.exchange, prev.exSymbol, 'chart');
-        this._chartTracked = null;
+      if (last) {
+        const priceEl = document.getElementById('chart-coin-price');
+        if (priceEl) priceEl.textContent = NS.DrawingGeo.fmtPrice(last.close);
       }
-      if (ex && sym && ex !== 'coingecko') {
-        let q = null;
-        const S = sym.toUpperCase();
-        for (const suf of ['USDT','USDC','BTC','ETH','USD']) { if (S.endsWith(suf)) { q = suf; break; } }
-        window.AXIOM.PriceService.track(ex, sym, coin.id, q, 'chart');
-        this._chartTracked = { exchange: ex, exSymbol: sym };
+      // Resetear el botón de watchlist al estado neutro cuando cambia el par
+      const btn = document.getElementById('chart-add-wl');
+      if (btn) {
+        btn.innerHTML = `<i class="ti ti-star" style="font-size:13px;"></i>`;
+        btn.style.color = '#78716C';
+        btn.title = 'Agregar a watchlist';
       }
-
-      // Precio de la fuente única (PriceService), mismo dato que las listas.
-      ChartsScreen._paintHeaderPrice(window.AXIOM.PriceService.getByCoin(Store.coin.id));
-      window.AXIOM.PriceService.subscribe('chart-header', (byCoin) => {
-        ChartsScreen._paintHeaderPrice(byCoin[Store.coin.id]);
-      });
-    },
-
-    _paintHeaderPrice(entry) {
-      const priceEl = document.getElementById('chart-coin-price');
-      if (!priceEl || !entry || entry.price == null) return;
-      const q = (entry.quote || 'USDT').toUpperCase();
-      if (q !== 'USDT' && q !== 'USDC' && q !== 'USD') {
-        const s = Number(entry.price).toFixed(10).replace(/0+$/, '').replace(/\.$/, '');
-        priceEl.textContent = `${s} ${q}`;
-      } else {
-        try { priceEl.textContent = NS.DrawingGeo.fmtPrice(entry.price); }
-        catch (e) { priceEl.textContent = '$' + entry.price; }
-      }
-    },
-
-    _stopPricePolling() {
-      window.AXIOM.PriceService.unsubscribe('chart-header');
     },
 
     _updateTfButtons() {
@@ -247,6 +326,9 @@
                 <span id="chart-coin-price" style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#A8A29E;"></span>
               </div>
             </div>
+            <button id="chart-add-wl" onclick="AXIOM.Charts.Screen._addCurrentToWatchlist()" title="Agregar a watchlist" style="display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:6px;border:0.5px solid #2C2926;background:transparent;color:#78716C;cursor:pointer;transition:all .15s;">
+              <i class="ti ti-star" style="font-size:13px;"></i>
+            </button>
           </div>
           <div style="width:1px;height:24px;background:#2C2926;"></div>
           <div style="display:flex;align-items:center;gap:2px;">${tfBtns}</div>
