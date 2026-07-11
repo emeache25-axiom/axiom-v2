@@ -22,6 +22,7 @@
   const ChartsScreen = {
     _booted: false,
     _searchTimer: null,
+    _inWatchlist: false,   // si el par actual ya está en la watchlist
 
     async onEnter() {
       const el = document.getElementById('screen-charts');
@@ -58,7 +59,13 @@
 
       const state = await API.getChartState().catch(() => null);
       if (state && state.coin_id) {
-        Store.setCoin({ id: state.coin_id });
+        // Restaurar el PAR completo, no solo el coin_id. Sin exchange/exSymbol
+        // el /history caía al par por defecto (/USDT) y se perdía el /BTC.
+        Store.setCoin({
+          id:       state.coin_id,
+          exchange: state.exchange  || null,
+          exSymbol: state.ex_symbol || null,
+        });
         Store.setTimeframe(state.timeframe || '1d');
       }
       this._updateTfButtons();
@@ -99,6 +106,8 @@
 
         Engine.wsConnect();
         this._updateHeader();
+        // Refrescar el estado del botón de watchlist según el par ya cargado
+        this._refreshWatchlistBtn();
       } catch (e) {
         console.error('[charts]', e);
         this._showError(e.message);
@@ -193,7 +202,7 @@
 
     _openIndicatorsModal() { NS.IndicatorsModal.open(); },
 
-    // ── Agregar el par actual a la watchlist ───────────────────────────────────────
+    // ── Watchlist: agregar el par actual ───────────────────────────────────────────
     // Reusa POST /api/watchlist/ con el par exacto que se está viendo.
     // El `quote` se deriva del exSymbol (pair_symbol real) respetando el par;
     // para coingecko se fija en USD (solo seguimiento, no operable).
@@ -212,7 +221,45 @@
       return 'USDT';
     },
 
+    // Pinta el botón según si el par ACTUAL (coin+exchange+pair_symbol) ya está
+    // en la watchlist. Consulta /api/watchlist/ para saberlo tras recargar/cambiar.
+    async _refreshWatchlistBtn() {
+      const btn = document.getElementById('chart-add-wl');
+      if (!btn) return;
+      const coin = Store.coin || {};
+      const base     = (coin.symbol || '').toUpperCase();
+      const exchange = coin.exchange || 'coingecko';
+      const exSymbol = (coin.exSymbol || `${base}USDT`).toUpperCase();
+
+      let found = false;
+      try {
+        const data  = await fetch('/api/watchlist/').then((r) => r.json());
+        const items = data.items || [];
+        found = items.some((it) =>
+          it.coin_id === coin.id &&
+          (it.exchange || '') === exchange &&
+          (it.pair_symbol || '').toUpperCase() === exSymbol
+        );
+      } catch (e) { found = false; }
+
+      this._inWatchlist = found;
+      if (found) {
+        btn.innerHTML = `<i class="ti ti-check" style="font-size:13px;"></i>`;
+        btn.style.color = '#56A14F';
+        btn.style.cursor = 'default';
+        btn.title = 'Ya está en la watchlist';
+      } else {
+        btn.innerHTML = `<i class="ti ti-star" style="font-size:13px;"></i>`;
+        btn.style.color = '#78716C';
+        btn.style.cursor = 'pointer';
+        btn.title = 'Agregar a watchlist';
+      }
+    },
+
     async _addCurrentToWatchlist() {
+      // Si ya está en la lista, no hacer nada (evita duplicar).
+      if (this._inWatchlist) return;
+
       const coin = Store.coin || {};
       const btn  = document.getElementById('chart-add-wl');
       if (!coin.id) return;
@@ -222,14 +269,15 @@
       const exSymbol = coin.exSymbol || `${base}USDT`;
       const quote    = this._deriveQuote(exSymbol, base, exchange);
 
-      const setBtn = (icon, color, title) => {
+      const setBtn = (icon, color, title, cursor) => {
         if (!btn) return;
         btn.innerHTML = `<i class="ti ti-${icon}" style="font-size:13px;"></i>`;
         btn.style.color = color;
+        btn.style.cursor = cursor || 'pointer';
         btn.title = title;
       };
 
-      setBtn('loader-2', '#78716C', 'Agregando...');
+      setBtn('loader-2', '#78716C', 'Agregando...', 'default');
       try {
         const r = await fetch('/api/watchlist/', {
           method: 'POST',
@@ -243,19 +291,22 @@
           }),
         });
         if (r.status === 409) {
-          setBtn('check', '#56A14F', 'Ya está en la watchlist');
+          // Ya existía: tratarlo como "ya está"
+          this._inWatchlist = true;
+          setBtn('check', '#56A14F', 'Ya está en la watchlist', 'default');
           return;
         }
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        setBtn('check', '#56A14F', 'Agregado a la watchlist');
+        this._inWatchlist = true;
+        setBtn('check', '#56A14F', 'Agregado a la watchlist', 'default');
         // Refrescar el panel lateral si está montado
         if (NS.WatchlistPanel && NS.WatchlistPanel._load) {
           NS.WatchlistPanel._load();
         }
       } catch (e) {
         console.error('[charts] add to watchlist:', e);
-        setBtn('alert-triangle', '#D93B3B', 'Error al agregar');
-        setTimeout(() => setBtn('star', '#78716C', 'Agregar a watchlist'), 2500);
+        setBtn('alert-triangle', '#D93B3B', 'Error al agregar', 'pointer');
+        setTimeout(() => this._refreshWatchlistBtn(), 2500);
       }
     },
 
@@ -268,13 +319,6 @@
       if (last) {
         const priceEl = document.getElementById('chart-coin-price');
         if (priceEl) priceEl.textContent = NS.DrawingGeo.fmtPrice(last.close);
-      }
-      // Resetear el botón de watchlist al estado neutro cuando cambia el par
-      const btn = document.getElementById('chart-add-wl');
-      if (btn) {
-        btn.innerHTML = `<i class="ti ti-star" style="font-size:13px;"></i>`;
-        btn.style.color = '#78716C';
-        btn.title = 'Agregar a watchlist';
       }
     },
 
