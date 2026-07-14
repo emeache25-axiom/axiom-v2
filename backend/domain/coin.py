@@ -148,8 +148,19 @@ class Coin(Composable):
         return {"articulos": filtrados, "match_terms": sorted(terminos)}
 
     async def pares(self) -> list:
-        # TODO paso 3/8: pair_discovery / adaptadores.
-        return []
+        """
+        Pares operables de la coin, descubiertos en MEXC y CoinEx.
+        Fuente: pair_discovery (que consolida el acceso a mercados de exchange).
+        Cada item: {exchange, base, quote, pair_symbol, operable}.
+        Puerta a la sub-entidad Par: coin.par(item['exchange'], item['quote']).
+        """
+        # Necesita el símbolo base de la coin
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT symbol FROM coins WHERE id=$1", self.id)
+        if not row or not row["symbol"]:
+            return []
+        from backend.strat.pair_discovery import discover_pairs
+        return await discover_pairs(row["symbol"])
 
     async def regimen_relativo(self) -> dict:
         """

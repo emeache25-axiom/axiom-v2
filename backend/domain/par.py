@@ -41,7 +41,7 @@ class Par(Composable):
     async def _resolve_symbol(self) -> str | None:
         if self._pair_symbol:
             return self._pair_symbol
-        # Buscar en watchlist el par exacto para esta coin+exchange+quote
+        # 1) Buscar en watchlist el par exacto para esta coin+exchange+quote
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
                 """SELECT pair_symbol FROM watchlist
@@ -50,6 +50,13 @@ class Par(Composable):
             )
         if row and row["pair_symbol"]:
             self._pair_symbol = row["pair_symbol"]
+            return self._pair_symbol
+        # 2) No está en watchlist: armar {BASE}{QUOTE} desde el símbolo de la coin
+        #    (mismo criterio que pair_discovery). Sirve para pares no seguidos.
+        async with self._pool.acquire() as conn:
+            crow = await conn.fetchrow("SELECT symbol FROM coins WHERE id=$1", self.coin.id)
+        if crow and crow["symbol"]:
+            self._pair_symbol = f"{crow['symbol'].upper()}{self.quote.upper()}"
         return self._pair_symbol
 
     # ── Mapa de capacidades (solo PEDIDOS entran al compositor) ────────────────
@@ -84,8 +91,21 @@ class Par(Composable):
         }
 
     async def velas_hist(self, timeframe: str = "1d", limit: int = 500) -> list:
-        # TODO paso 3/8: adapter.get_ohlcv(symbol, timeframe, limit).
-        return []
+        """
+        Velas OHLCV históricas del par. Fuente: adaptador del exchange (única
+        puerta a datos de mercado). Formato normalizado:
+        [{time, open, high, low, close, volume}] con time en segundos UTC.
+        """
+        symbol = await self._resolve_symbol()
+        if not symbol:
+            return []
+        adapter = get_adapter(self.exchange)
+        if not adapter.supports("ohlcv") and not adapter.supports("ohlcv_limited"):
+            return []
+        try:
+            return await adapter.get_ohlcv(symbol, timeframe, limit=limit)
+        except Exception:
+            return []
 
     async def order_book_snapshot(self, depth: int = 20) -> dict:
         # TODO: adapter.get_orderbook(symbol, depth).
