@@ -56,32 +56,150 @@ class Mercado(Composable):
         }
 
     async def feed_noticias(self, fuente: str | None = None) -> dict:
-        """Noticias globales (RSS). Fuente: news_service."""
+        """Noticias globales (RSS). Fuente: news_service.
+        get_news devuelve {'articles': [...], 'total': ...}; se normaliza a
+        {'articulos': [...]} para el contrato del dominio."""
         try:
             from backend.services.news_service import get_news
-            articulos = await get_news(source=fuente) if fuente else await get_news()
-        except TypeError:
-            # firma distinta: intentar sin kwargs
-            from backend.services.news_service import get_news
-            articulos = await get_news()
+            data = await get_news(source=fuente) if fuente else await get_news()
         except Exception:
-            articulos = []
-        return {"articulos": articulos}
+            data = {}
+        articulos = data.get("articles", []) if isinstance(data, dict) else []
+        return {"articulos": articulos, "total": len(articulos)}
 
-    # ══ STUB (paso 4) ═════════════════════════════════════════════════════════
+    # ══ MAPA Y SECTOR (fuerza de sectores) ════════════════════════════════════
+
+    # Umbral de lectura de fuerza sectorial (sobre change_7d). Calibrable.
+    _UMBRAL_FUERTE = 3.0    # >+3% en 7d → sector fuerte
+    _UMBRAL_DEBIL  = -3.0   # <-3% en 7d → sector débil
+
+    def _lectura_sector(self, change_7d: float | None) -> str:
+        if change_7d is None:
+            return "sector_neutral"
+        if change_7d > self._UMBRAL_FUERTE:
+            return "sector_fuerte"
+        if change_7d < self._UMBRAL_DEBIL:
+            return "sector_debil"
+        return "sector_neutral"
 
     async def mapa(self) -> dict:
-        # TODO paso 4: agregar coins por supercategoría + ranking de fuerza de sectores.
-        return {"_stub": "mapa pendiente (categorías + ranking sectores)",
-                "categorias": [], "redes": []}
+        """
+        Categorías agregadas por supercategoría, CON ranking de fuerza.
+        Fuente de verdad del sector (sector() filtra de acá).
+        Orden de fuerza: change_7d principal, change_24h desempate.
+        Lectura: valor absoluto del change_7d (fuerte/neutral/débil).
+        """
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT
+                    supercat,
+                    SUM(market_cap)  AS total_mcap,
+                    AVG(change_24h)  AS avg_change_24h,
+                    AVG(change_7d)   AS avg_change_7d,
+                    COUNT(*)         AS coin_count
+                FROM coins
+                WHERE market_cap IS NOT NULL AND market_cap > 0
+                GROUP BY supercat
+                ORDER BY total_mcap DESC
+            """)
+
+        total_mcap = sum(float(r["total_mcap"]) for r in rows if r["total_mcap"])
+
+        categorias = []
+        for r in rows:
+            sc      = r["supercat"] or "otros"
+            mcap    = float(r["total_mcap"]) if r["total_mcap"] else 0.0
+            c24     = round(float(r["avg_change_24h"]), 2) if r["avg_change_24h"] is not None else None
+            c7d     = round(float(r["avg_change_7d"]),  2) if r["avg_change_7d"]  is not None else None
+            pct     = round(mcap / total_mcap * 100, 2) if total_mcap > 0 else 0.0
+            categorias.append({
+                "supercategoria": sc,
+                "market_cap":     mcap,
+                "peso_pct":       pct,
+                "change_24h":     c24,
+                "change_7d":      c7d,
+                "coin_count":     r["coin_count"],
+                # lectura (crudo + interpretación): etiqueta por valor absoluto del 7d
+                "lectura":        self._lectura_sector(c7d),
+            })
+
+        # Ranking de fuerza: change_7d principal, change_24h desempate.
+        # None al fondo (se tratan como muy negativos para el orden).
+        def _clave(c):
+            c7 = c["change_7d"] if c["change_7d"] is not None else -9999
+            c24 = c["change_24h"] if c["change_24h"] is not None else -9999
+            return (c7, c24)
+
+        ordenadas = sorted(categorias, key=_clave, reverse=True)
+        for i, c in enumerate(ordenadas, start=1):
+            c["fuerza_rank"] = i
+
+        # Se devuelve en orden de fuerza (rank 1 = sector más fuerte)
+        return {
+            "categorias": ordenadas,
+            "total_mcap": total_mcap,
+            "criterio":   "change_7d (desempate change_24h)",
+        }
 
     async def sector(self, supercategoria: str) -> dict:
-        # TODO paso 4: usar mapa() y filtrar la categoría (una sola fuente de verdad).
-        return {"_stub": "sector pendiente", "supercategoria": supercategoria}
+        """
+        Fila de UNA categoría del mapa. NO recalcula: usa mapa() y filtra.
+        Una sola fuente de verdad. Es lo que la Coin consume para su
+        posicion_sectorial en regimen_relativo.
+        """
+        m = await self.mapa()
+        for c in m.get("categorias", []):
+            if c["supercategoria"] == supercategoria:
+                return {
+                    "supercategoria":    c["supercategoria"],
+                    "sector_change_24h": c["change_24h"],
+                    "sector_change_7d":  c["change_7d"],
+                    "sector_rank":       c["fuerza_rank"],
+                    "total_sectores":    len(m["categorias"]),
+                    "lectura":           c["lectura"],
+                }
+        # Sin datos para esa supercategoría
+        return {
+            "supercategoria":    supercategoria,
+            "sector_change_24h": None,
+            "sector_change_7d":  None,
+            "sector_rank":       None,
+            "total_sectores":    len(m.get("categorias", [])),
+            "lectura":           "sector_neutral",
+        }
 
     async def ranking(self, criterio: str = "market_cap", n: int = 10) -> dict:
-        # TODO: coins PG ordenado por criterio.
-        return {"_stub": "ranking pendiente", "criterio": criterio, "coins": []}
+        """Top N coins por criterio. Fuente: coins (PG)."""
+        columnas = {
+            "market_cap": "market_cap",
+            "change_24h": "change_24h",
+            "change_7d":  "change_7d",
+            "volume_24h": "volume_24h",
+        }
+        col = columnas.get(criterio, "market_cap")
+        n = max(1, min(100, n))
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(f"""
+                SELECT id, symbol, name, rank, price, {col} AS valor,
+                       change_24h, image
+                FROM coins
+                WHERE {col} IS NOT NULL AND rank IS NOT NULL
+                ORDER BY {col} DESC NULLS LAST
+                LIMIT $1
+            """, n)
+        coins = []
+        for i, r in enumerate(rows, start=1):
+            coins.append({
+                "posicion":   i,
+                "coin_id":    r["id"],
+                "symbol":     r["symbol"],
+                "name":       r["name"],
+                "rank":       r["rank"],
+                "valor":      float(r["valor"]) if r["valor"] is not None else None,
+                "change_24h": float(r["change_24h"]) if r["change_24h"] is not None else None,
+                "image":      r["image"],
+            })
+        return {"criterio": criterio, "coins": coins}
 
     async def top_n(self, criterio: str = "market_cap", n: int = 10) -> dict:
         return await self.ranking(criterio, n)

@@ -116,16 +116,68 @@ class Coin(Composable):
         return {"_stub": "info_proyecto pendiente (CoinGecko /coins/{id})"}
 
     async def noticias(self) -> dict:
-        # TODO paso 5: pedir mercado.feed_noticias() y filtrar por símbolo+nombre.
-        return {"_stub": "noticias pendiente (filtrar RSS de Mercado)"}
+        """
+        Noticias de la coin: filtra el feed global de Mercado por símbolo+nombre.
+        Una sola fuente de RSS (Mercado); la Coin solo filtra su vista.
+        Filtrado simple (match en título+resumen); refinable después.
+        """
+        mercado = self._mercado()
+        feed = await mercado.feed_noticias()
+        articulos = feed.get("articulos", []) if isinstance(feed, dict) else []
+
+        # Datos para el match: símbolo y nombre de la coin
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT symbol, name FROM coins WHERE id=$1", self.id)
+        if not row:
+            return {"articulos": []}
+        symbol = (row["symbol"] or "").lower()
+        name   = (row["name"] or "").lower()
+        terminos = {t for t in (symbol, name) if t and len(t) >= 2}
+
+        def _matches(art: dict) -> bool:
+            # Claves reales del artículo del news_service: title, summary
+            texto = ""
+            for campo in ("title", "summary"):
+                v = art.get(campo)
+                if v:
+                    texto += " " + str(v).lower()
+            return any(t in texto for t in terminos)
+
+        filtrados = [a for a in articulos if _matches(a)]
+        return {"articulos": filtrados, "match_terms": sorted(terminos)}
 
     async def pares(self) -> list:
         # TODO paso 3/8: pair_discovery / adaptadores.
         return []
 
     async def regimen_relativo(self) -> dict:
-        # TODO paso 5: contexto_global (Mercado) + fuerza_vs_btc + posicion_sectorial.
-        return {"_stub": "regimen_relativo pendiente (consume Mercado)"}
+        """
+        Cómo se para la coin en el clima de mercado. Combina:
+          A) contexto_global — el régimen del mercado (consume Mercado)
+          C) posicion_sectorial — fuerza del sector de la coin (consume Mercado)
+          A) fuerza_vs_btc — ratio COIN/BTC [pendiente: requiere precio de par]
+        """
+        mercado = self._mercado()
+        supercat = await self._supercategoria()
+
+        # Los dos bloques que ya se pueden resolver, en paralelo
+        import asyncio as _asyncio
+        contexto, sector = await _asyncio.gather(
+            mercado.regimen_global(),
+            mercado.sector(supercat) if supercat else _noop(),
+            return_exceptions=True,
+        )
+        contexto = {} if isinstance(contexto, Exception) else contexto
+        sector   = None if isinstance(sector, Exception) else sector
+
+        return {
+            "contexto_global":    contexto,
+            "posicion_sectorial": sector,
+            "fuerza_vs_btc": {
+                "_pendiente": "requiere precio de par (paso consolidación exchanges)",
+            },
+        }
 
     # ── Helper interno (para futuras capacidades) ─────────────────────────────
     async def _supercategoria(self) -> str | None:
@@ -133,3 +185,8 @@ class Coin(Composable):
             row = await conn.fetchrow(
                 "SELECT supercat FROM coins WHERE id=$1", self.id)
         return row["supercat"] if row else None
+
+
+async def _noop():
+    """Coroutine vacía para gather cuando no hay supercategoría."""
+    return None
