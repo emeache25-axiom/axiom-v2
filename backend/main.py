@@ -28,6 +28,8 @@ from backend.api.orderbook import router as orderbook_router
 from backend.api.prices import router as prices_router
 from backend.services.price_stream import run_price_stream
 from backend.api.candles import router as candles_router
+from backend.api.domain_router import router as domain_router
+from backend.domain import AxiomDomain
 
 logging.basicConfig(
     level=logging.INFO,
@@ -60,6 +62,8 @@ async def lifespan(app: FastAPI):
         DATABASE_URL, min_size=1, max_size=5,
     )
     logging.info("[AXIOM v2] Pool de PostgreSQL inicializado")
+    app.state.domain = AxiomDomain(app.state.db_pool)
+    logging.info("[AXIOM v2] Capa de dominio inicializada")
     start_scheduler(app.state.db_pool)
     import asyncio
     from backend.services.orderbook_capture import run_capture
@@ -89,6 +93,7 @@ app.include_router(watchlist_router)
 app.include_router(strat_router)
 app.include_router(prices_router)
 app.include_router(candles_router)
+app.include_router(domain_router)
 load_strategies()
 app.include_router(alerts_router)
 app.include_router(bot_router)
