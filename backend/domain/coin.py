@@ -167,27 +167,116 @@ class Coin(Composable):
         Cómo se para la coin en el clima de mercado. Combina:
           A) contexto_global — el régimen del mercado (consume Mercado)
           C) posicion_sectorial — fuerza del sector de la coin (consume Mercado)
-          A) fuerza_vs_btc — ratio COIN/BTC [pendiente: requiere precio de par]
+          A) fuerza_vs_btc — ratio COIN/BTC (par directo o derivado)
         """
         mercado = self._mercado()
         supercat = await self._supercategoria()
 
-        # Los dos bloques que ya se pueden resolver, en paralelo
         import asyncio as _asyncio
-        contexto, sector = await _asyncio.gather(
+        contexto, sector, fuerza = await _asyncio.gather(
             mercado.regimen_global(),
             mercado.sector(supercat) if supercat else _noop(),
+            self._fuerza_vs_btc(),
             return_exceptions=True,
         )
         contexto = {} if isinstance(contexto, Exception) else contexto
         sector   = None if isinstance(sector, Exception) else sector
+        fuerza   = None if isinstance(fuerza, Exception) else fuerza
 
         return {
             "contexto_global":    contexto,
             "posicion_sectorial": sector,
-            "fuerza_vs_btc": {
-                "_pendiente": "requiere precio de par (paso consolidación exchanges)",
-            },
+            "fuerza_vs_btc":      fuerza,
+        }
+
+    # Umbral de lectura de fuerza vs BTC (sobre ratio_change_7d). Igual que sectores.
+    _UMBRAL_LIDER    = 3.0    # >+3% en 7d vs BTC → líder
+    _UMBRAL_REZAGADA = -3.0   # <-3% en 7d vs BTC → rezagada
+
+    def _lectura_fuerza(self, ratio_change_7d: float | None) -> str:
+        if ratio_change_7d is None:
+            return "neutral"
+        if ratio_change_7d > self._UMBRAL_LIDER:
+            return "lider"
+        if ratio_change_7d < self._UMBRAL_REZAGADA:
+            return "rezagada"
+        return "neutral"
+
+    @staticmethod
+    def _pct_change(serie: list, atras: int) -> float | None:
+        """Cambio % del último close vs el close `atras` velas atrás."""
+        if not serie or len(serie) <= atras:
+            return None
+        actual = serie[-1].get("close")
+        previo = serie[-1 - atras].get("close")
+        if not actual or not previo:
+            return None
+        return round((actual / previo - 1) * 100, 2)
+
+    async def _fuerza_vs_btc(self) -> dict:
+        """
+        Fuerza relativa de la coin vs BTC. Usa el par COIN/BTC DIRECTO si existe,
+        deriva (COIN/USDT ÷ BTC/USDT) si no. Crudo + interpretación.
+        """
+        # Caso trivial: bitcoin vs sí mismo
+        if self.id == "bitcoin":
+            return {"ratio_change_7d": 0.0, "ratio_change_24h": 0.0,
+                    "lectura": "neutral", "fuente_calculo": "es_btc"}
+
+        # 1) ¿Hay par COIN/BTC directo operable?
+        pares = await self.pares()
+        par_btc = next((p for p in pares if p.get("quote") == "BTC"), None)
+
+        if par_btc:
+            # Directo: velas del par COIN/BTC en satoshis
+            par = self.par(par_btc["exchange"], "BTC")
+            velas = await par.velas_hist(timeframe="1d", limit=10)
+            c7  = self._pct_change(velas, 7)
+            c24 = self._pct_change(velas, 1)
+            return {
+                "ratio_change_7d":  c7,
+                "ratio_change_24h": c24,
+                "lectura":          self._lectura_fuerza(c7),
+                "fuente_calculo":   "par_btc",
+            }
+
+        # 2) Derivado: COIN/USDT ÷ BTC/USDT
+        par_coin = next((p for p in pares if p.get("quote") == "USDT"), None)
+        if not par_coin:
+            return {"ratio_change_7d": None, "ratio_change_24h": None,
+                    "lectura": "neutral", "fuente_calculo": "sin_datos"}
+
+        coin_par = self.par(par_coin["exchange"], "USDT")
+        btc_par  = Coin(self._pool, "bitcoin", domain=self._domain).par(par_coin["exchange"], "USDT")
+        import asyncio as _asyncio
+        vc, vb = await _asyncio.gather(
+            coin_par.velas_hist(timeframe="1d", limit=10),
+            btc_par.velas_hist(timeframe="1d", limit=10),
+            return_exceptions=True,
+        )
+        vc = [] if isinstance(vc, Exception) else vc
+        vb = [] if isinstance(vb, Exception) else vb
+
+        def _ratio_change(atras: int) -> float | None:
+            if not vc or not vb or len(vc) <= atras or len(vb) <= atras:
+                return None
+            rc_now = vc[-1].get("close");  rb_now = vb[-1].get("close")
+            rc_old = vc[-1-atras].get("close"); rb_old = vb[-1-atras].get("close")
+            if not all([rc_now, rb_now, rc_old, rb_old]):
+                return None
+            ratio_now = rc_now / rb_now
+            ratio_old = rc_old / rb_old
+            if not ratio_old:
+                return None
+            return round((ratio_now / ratio_old - 1) * 100, 2)
+
+        c7  = _ratio_change(7)
+        c24 = _ratio_change(1)
+        return {
+            "ratio_change_7d":  c7,
+            "ratio_change_24h": c24,
+            "lectura":          self._lectura_fuerza(c7),
+            "fuente_calculo":   "derivado",
         }
 
     # ── Helper interno (para futuras capacidades) ─────────────────────────────
