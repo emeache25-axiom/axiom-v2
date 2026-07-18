@@ -112,8 +112,14 @@ class Coin(Composable):
     # ══ CAPACIDADES STUB (se completan en pasos siguientes) ═══════════════════
 
     async def info_proyecto(self) -> dict:
-        # TODO paso 5: CoinGecko /coins/{id}, cachear en tabla coin_info.
-        return {"_stub": "info_proyecto pendiente (CoinGecko /coins/{id})"}
+        """
+        Información de proyecto (descripción, supply, ATH/ATL, links, categorías).
+        Fuente: CoinGecko /coins/{id}, cacheada en la tabla `coin_info` (TTL 7 días).
+        Si CoinGecko falla pero hay copia guardada, devuelve la copia.
+        """
+        from backend.services import coin_info_service
+        data = await coin_info_service.get(self._pool, self.id)
+        return data or {}
 
     async def noticias(self) -> dict:
         """
