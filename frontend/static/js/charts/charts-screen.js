@@ -104,7 +104,8 @@
         NS.Legend.mount();
         NS.OHLCBar.mount();
 
-        Engine.wsConnect();
+        // El precio en vivo (vela + header) lo maneja el engine vía PriceService
+        // (fuente única). El header se actualiza en cada render de la vela.
         this._updateHeader();
         // Refrescar el estado del botón de watchlist según el par ya cargado
         this._refreshWatchlistBtn();
@@ -311,15 +312,33 @@
     },
 
     // ── Header / estado ────────────────────────────────────────────────────────────
+    // NOTA: el precio del header lo actualiza el Engine en cada render de la vela
+    // en vivo (mismo valor que dibuja ⇒ header, vela y lista coinciden siempre).
+    // Aquí solo se fija el estado inicial al cargar.
     _updateHeader() {
-      const c = Store.candles;
-      const last = c.length ? c[c.length - 1] : null;
       const nameEl = document.getElementById('chart-coin-name');
       if (nameEl) nameEl.textContent = `${Store.coin.name || Store.coin.id} · ${(Store.coin.symbol || '').toUpperCase()}`;
-      if (last) {
-        const priceEl = document.getElementById('chart-coin-price');
-        if (priceEl) priceEl.textContent = NS.DrawingGeo.fmtPrice(last.close);
+      // Precio: preferir el tick en vivo del PriceService; si aún no llegó, usar
+      // el close de la última vela (histórico) como valor inicial.
+      const priceEl = document.getElementById('chart-coin-price');
+      if (!priceEl) return;
+      const PS = NS.PriceService;
+      const coin = Store.coin;
+      let price = null;
+      if (PS) {
+        let p = null;
+        try { p = PS.getPrice(coin.exchange, coin.exSymbol); } catch (e) {}
+        if (!p || p.price == null) {
+          try { p = PS.getByCoin(coin.id); } catch (e) {}
+        }
+        if (p && p.price != null) price = p.price;
       }
+      if (price == null) {
+        const c = Store.candles;
+        const last = c.length ? c[c.length - 1] : null;
+        if (last) price = last.close;
+      }
+      if (price != null) priceEl.textContent = NS.DrawingGeo.fmtPrice(price);
     },
 
     _updateTfButtons() {

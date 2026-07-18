@@ -1,7 +1,11 @@
 """
 AXIOM v2 — Charts API
 UDF (Universal Data Feed) para Lightweight Charts.
-Fuente única por coin: Binance > MEXC > CoinGecko.
+
+Las velas históricas se obtienen vía la CAPA DE DOMINIO (Par.velas_hist), que a
+su vez usa la librería de adaptadores. Este router YA NO habla con las APIs de
+los exchanges directamente: le pide velas al Par y el Par sabe de dónde traerlas.
+Exchange SIEMPRE explícito, sin fallback silencioso entre exchanges.
 """
 from __future__ import annotations
 import asyncio
@@ -9,7 +13,6 @@ import json
 import logging
 from datetime import timezone, datetime
 
-import httpx
 from fastapi import APIRouter, Request, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 from typing import Optional
@@ -19,101 +22,8 @@ from backend.services.price_service import get_price
 router = APIRouter(prefix="/api/charts", tags=["charts"])
 logger = logging.getLogger(__name__)
 
-_BINANCE_BASE = "https://api.binance.com"
-_MEXC_BASE    = "https://api.mexc.com"
-_COINEX_BASE  = "https://api.coinex.com"
-_TIMEOUT      = 10.0
-
-_TF_BINANCE = {
-    "5m": "5m", "15m": "15m", "30m": "30m",
-    "1h": "1h", "4h": "4h",  "1d": "1d",
-    "1w": "1w", "1M": "1M",
-}
-_TF_MEXC = {
-    "5m": "5m", "15m": "15m", "30m": "30m",
-    "1h": "60m", "4h": "4h", "1d": "1d",
-    "1w": "1W",  "1M": "1M",
-}
-_TF_COINEX = {
-    "5m": "5min", "15m": "15min", "30m": "30min",
-    "1h": "1hour", "4h": "4hour", "1d": "1day",
-    "1w": "1week", "1M": "1month",
-}
-
-
-# ── Fetch histórico ───────────────────────────────────────────────────────────
-
-async def _klines_binance(symbol: str, interval: str,
-                           start_ms: int | None, end_ms: int | None,
-                           limit: int = 1000) -> list[dict] | None:
-    params: dict = {"symbol": symbol, "interval": interval, "limit": limit}
-    if start_ms: params["startTime"] = start_ms
-    if end_ms:   params["endTime"]   = end_ms
-    try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
-            r = await c.get(f"{_BINANCE_BASE}/api/v3/klines", params=params)
-            if r.status_code != 200:
-                return None
-            return [
-                {"time":   row[0] // 1000,
-                 "open":   float(row[1]), "high":  float(row[2]),
-                 "low":    float(row[3]), "close": float(row[4]),
-                 "volume": float(row[5])}
-                for row in r.json()
-            ]
-    except Exception as e:
-        logger.debug(f"[charts] binance klines {symbol}: {e}")
-        return None
-
-
-async def _klines_mexc(symbol: str, interval: str,
-                        start_ms: int | None, end_ms: int | None,
-                        limit: int = 1000) -> list[dict] | None:
-    params: dict = {"symbol": symbol, "interval": interval, "limit": limit}
-    if start_ms: params["startTime"] = start_ms
-    if end_ms:   params["endTime"]   = end_ms
-    try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
-            r = await c.get(f"{_MEXC_BASE}/api/v3/klines", params=params)
-            if r.status_code != 200:
-                return None
-            return [
-                {"time":   row[0] // 1000,
-                 "open":   float(row[1]), "high":  float(row[2]),
-                 "low":    float(row[3]), "close": float(row[4]),
-                 "volume": float(row[5])}
-                for row in r.json()
-            ]
-    except Exception as e:
-        logger.debug(f"[charts] mexc klines {symbol}: {e}")
-        return None
-
-
-async def _klines_coinex(symbol: str, period: str,
-                         start_ms: int | None, end_ms: int | None,
-                         limit: int = 1000) -> list[dict] | None:
-    params: dict = {"market": symbol, "period": period, "limit": min(limit, 1000)}
-    # CoinEx usa segundos en start_time/end_time
-    if start_ms: params["start_time"] = start_ms // 1000
-    if end_ms:   params["end_time"]   = end_ms // 1000
-    try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
-            r = await c.get(f"{_COINEX_BASE}/v2/spot/kline", params=params)
-            if r.status_code != 200:
-                return None
-            body = r.json()
-            if body.get("code") != 0:
-                return None
-            return [
-                {"time":   int(row["created_at"]) // 1000,
-                 "open":   float(row["open"]),  "high":  float(row["high"]),
-                 "low":    float(row["low"]),   "close": float(row["close"]),
-                 "volume": float(row["volume"])}
-                for row in body.get("data", [])
-            ]
-    except Exception as e:
-        logger.debug(f"[charts] coinex klines {symbol}: {e}")
-        return None
+# Timeframes canónicos válidos (la traducción por-exchange vive en los adaptadores)
+_TIMEFRAMES = ("5m", "15m", "30m", "1h", "4h", "1d", "1w", "1M")
 
 
 # ── UDF History endpoint ──────────────────────────────────────────────────────
@@ -137,14 +47,16 @@ async def get_history(
     (permite distinguir ONT/BTC de ONT/USDT). Si no vienen, se resuelve uno
     desde coin_exchanges (comportamiento anterior, compatible).
     """
-    if timeframe not in _TF_BINANCE:
-        raise HTTPException(400, f"Timeframe inválido. Válidos: {list(_TF_BINANCE.keys())}")
+    if timeframe not in _TIMEFRAMES:
+        raise HTTPException(400, f"Timeframe inválido. Válidos: {list(_TIMEFRAMES)}")
     limit = min(max(limit, 10), 1000)
 
     # ¿el par vino explícito desde el frontend?
     pair_forzado = bool(ex_symbol)
 
-    pool = request.app.state.db_pool
+    pool   = request.app.state.db_pool
+    domain = request.app.state.domain
+
     async with pool.acquire() as conn:
         coin_info = await conn.fetchrow(
             "SELECT symbol, name, price, change_24h, image FROM coins WHERE id=$1",
@@ -161,55 +73,23 @@ async def get_history(
     if not coin_info:
         raise HTTPException(404, "Coin no encontrada")
 
-    start_ms = from_ts * 1000 if from_ts else None
-    end_ms   = to_ts   * 1000 if to_ts   else None
-
-    candles = None
     if not exchange:
         exchange = "coingecko"
     if not ex_symbol:
         ex_symbol = coin_id
 
-    if exchange == "binance":
-        candles = await _klines_binance(
-            ex_symbol, _TF_BINANCE[timeframe], start_ms, end_ms, limit)
-
-    elif exchange == "mexc":
-        # MEXC no soporta 1w/1M en algunos pares — fallback a binance si falla
-        tf_mexc = _TF_MEXC.get(timeframe)
-        if tf_mexc:
-            candles = await _klines_mexc(
-                ex_symbol, tf_mexc, start_ms, end_ms, limit)
-
-    elif exchange == "coinex":
-        tf_cx = _TF_COINEX.get(timeframe)
-        if tf_cx:
-            candles = await _klines_coinex(
-                ex_symbol, tf_cx, start_ms, end_ms, limit)
-
-    # Fallback: si el exchange asignado falló, intentar otro — PERO solo si el
-    # par NO vino forzado desde el frontend (para no mostrar ONT/USDT cuando se
-    # pidió ONT/BTC). Con par forzado, se respeta o se devuelve vacío.
-    if not pair_forzado and not candles and exchange == "binance":
-        async with pool.acquire() as conn:
-            mx = await conn.fetchrow(
-                "SELECT symbol FROM coin_exchanges WHERE coin_id=$1 AND exchange='mexc'",
-                coin_id)
-        if mx and _TF_MEXC.get(timeframe):
-            candles = await _klines_mexc(
-                mx["symbol"], _TF_MEXC[timeframe], start_ms, end_ms, limit)
-
-    elif not pair_forzado and not candles and exchange == "mexc":
-        async with pool.acquire() as conn:
-            bn = await conn.fetchrow(
-                "SELECT symbol FROM coin_exchanges WHERE coin_id=$1 AND exchange='binance'",
-                coin_id)
-        if bn:
-            candles = await _klines_binance(
-                bn["symbol"], _TF_BINANCE[timeframe], start_ms, end_ms, limit)
+    # Traer velas vía la capa de dominio: el Par usa el adaptador del exchange.
+    # Exchange explícito, sin fallback silencioso (si el par no tiene datos en su
+    # exchange, se devuelve vacío — no se muestra otro par disfrazado).
+    # El quote no es necesario aquí: fijamos el pair_symbol exacto (ex_symbol).
+    start_ms = from_ts * 1000 if from_ts else None
+    end_ms   = to_ts   * 1000 if to_ts   else None
+    par = domain.coin(coin_id).par(exchange, quote="").con_pair_symbol(ex_symbol)
+    candles = await par.velas_hist(timeframe=timeframe, limit=limit,
+                                   start_ms=start_ms, end_ms=end_ms)
 
     if not candles:
-        # Para coins solo en CoinGecko, solo disponible 1d
+        # Para coins solo en CoinGecko, solo disponible 1d/1w/1M
         if timeframe not in ("1d", "1w", "1M"):
             return {
                 "coin_id": coin_id, "timeframe": timeframe,
@@ -363,12 +243,7 @@ class WsManager:
                 url = f"wss://stream.binance.com:9443/stream?streams={streams}"
                 logger.info(f"[ws] Conectando a Binance WS: {len(self._subscribed)} streams")
 
-                async with httpx.AsyncClient() as client:
-                    async with client.stream("GET", url) as resp:
-                        # Upgrade a WebSocket manual via websockets lib
-                        pass
-
-                # Usar websockets directamente
+                # Conexión WebSocket a Binance
                 import websockets
                 async with websockets.connect(url, ping_interval=20, ping_timeout=10) as ws:
                     backoff = 1  # reset backoff al conectar exitosamente

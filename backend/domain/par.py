@@ -37,6 +37,13 @@ class Par(Composable):
         self.quote = quote
         self._pair_symbol: str | None = None   # se resuelve perezoso (ej. ONTBTC)
 
+    def con_pair_symbol(self, pair_symbol: str) -> "Par":
+        """Fija el pair_symbol conocido (evita resolverlo). Devuelve self para encadenar.
+        Útil cuando el llamador ya tiene el ex_symbol exacto (ej. charts.py)."""
+        if pair_symbol:
+            self._pair_symbol = pair_symbol.upper()
+        return self
+
     # ── Resolución del pair_symbol (perezoso) ─────────────────────────────────
     async def _resolve_symbol(self) -> str | None:
         if self._pair_symbol:
@@ -90,11 +97,24 @@ class Par(Composable):
             "capabilities": set(getattr(adapter, "capabilities", set())),
         }
 
-    async def velas_hist(self, timeframe: str = "1d", limit: int = 500) -> list:
+    # Milisegundos por vela de cada timeframe (para paginar hacia atrás).
+    # MEXC y CoinEx IGNORAN end_ms si no se les da también start_ms: devuelven las
+    # velas más recientes en vez de las anteriores a end_ms. Por eso, al paginar
+    # hacia atrás (end_ms sin start_ms), calculamos el start_ms restando la ventana.
+    _TF_MS = {
+        "5m": 300_000, "15m": 900_000, "30m": 1_800_000,
+        "1h": 3_600_000, "4h": 14_400_000, "1d": 86_400_000,
+        "1w": 604_800_000, "1M": 2_592_000_000,
+    }
+
+    async def velas_hist(self, timeframe: str = "1d", limit: int = 500,
+                         start_ms: int | None = None,
+                         end_ms: int | None = None) -> list:
         """
         Velas OHLCV históricas del par. Fuente: adaptador del exchange (única
         puerta a datos de mercado). Formato normalizado:
         [{time, open, high, low, close, volume}] con time en segundos UTC.
+        start_ms/end_ms opcionales para paginar rangos (scroll del gráfico).
         """
         symbol = await self._resolve_symbol()
         if not symbol:
@@ -102,18 +122,46 @@ class Par(Composable):
         adapter = get_adapter(self.exchange)
         if not adapter.supports("ohlcv") and not adapter.supports("ohlcv_limited"):
             return []
+
+        # Paginación hacia atrás: si hay end_ms pero no start_ms, calcular la
+        # ventana (MEXC/CoinEx ignoran end_ms suelto y devuelven lo más reciente).
+        if end_ms and not start_ms:
+            span = self._TF_MS.get(timeframe, 86_400_000) * (limit + 1)
+            start_ms = end_ms - span
+
         try:
-            return await adapter.get_ohlcv(symbol, timeframe, limit=limit)
+            return await adapter.get_ohlcv(
+                symbol, timeframe, start_ms=start_ms, end_ms=end_ms, limit=limit)
         except Exception:
             return []
 
     async def order_book_snapshot(self, depth: int = 20) -> dict:
-        # TODO: adapter.get_orderbook(symbol, depth).
-        return {"_stub": "order_book_snapshot pendiente", "bids": [], "asks": []}
+        """Libro de órdenes puntual. Fuente: adaptador del exchange."""
+        symbol = await self._resolve_symbol()
+        if not symbol:
+            return {"ts": None, "bids": [], "asks": []}
+        adapter = get_adapter(self.exchange)
+        if not adapter.supports("orderbook"):
+            return {"ts": None, "bids": [], "asks": [], "_no_soportado": True}
+        try:
+            return await adapter.get_orderbook(symbol, depth)
+        except Exception:
+            return {"ts": None, "bids": [], "asks": []}
 
     async def estado_chart(self) -> dict:
-        # TODO: PG chart_state/indicators/drawings de este par.
-        return {"_stub": "estado_chart pendiente"}
+        """Estado del gráfico persistido para este par. Fuente: PG chart_state."""
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """SELECT coin_id, timeframe, exchange, ex_symbol
+                   FROM chart_state WHERE id=1""")
+        if not row:
+            return {"timeframe": "1d", "exchange": self.exchange, "ex_symbol": None}
+        return {
+            "coin_id":   row["coin_id"],
+            "timeframe": row["timeframe"],
+            "exchange":  row["exchange"],
+            "ex_symbol": row["ex_symbol"],
+        }
 
     # ══ FLUJOS (delegan en servicios singleton — NO abren sockets) ════════════
 

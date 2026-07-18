@@ -202,8 +202,9 @@
 
       Coords.setCandles(candles);
       Store.setCandles(candles);
-      // Conectar la vela en vivo (candle_stream) para el par+timeframe actual
-      this.wsConnect();
+      // Precio en vivo: fuente ÚNICA = PriceService (mismo tick que header y lista).
+      // La vela en curso se actualiza con cada tick (modelo TradingView).
+      this._connectPrice();
       return candles;
     }
 
@@ -262,49 +263,134 @@
       return                { type: 'price', precision: 8, minMove: 0.00000001 };
     }
 
-    // ── WebSocket vela en vivo (candle_stream: CoinEx/MEXC/Binance) ─────────────
-    wsConnect() {
-      this._wsDisconnect();
+    // ── Precio en vivo — MODELO HÍBRIDO ────────────────────────────────────────
+    // Dos aportes, una sola vela:
+    //   · candle_stream (/api/candles/ws) → open, high, low y VOLUMEN oficiales
+    //     del exchange (la forma real de la vela en curso).
+    //   · PriceService (price_stream)     → el CLOSE (el precio), el mismo tick
+    //     que muestran el header y la lista lateral ⇒ los tres coinciden.
+    // La vela que se dibuja es la del candle_stream con su close pisado por el
+    // último tick de precio.
+    _connectPrice() {
+      this._disconnectPrice();
       const coin = Store.coin;
       const ex  = coin.exchange;
       const sym = coin.exSymbol;
       if (!ex || ex === 'coingecko' || !sym) return;
 
+      this._baseCandle = null;   // última vela oficial del candle_stream
+      this._lastTick   = null;   // último precio del price_stream
+
+      // 1) Vela oficial (volumen + forma) por WebSocket
+      this._candleWsConnect(ex, sym);
+
+      // 2) Precio (close) desde la fuente única
+      const PS = NS.PriceService;
+      if (!PS) return;
+      PS.track(ex, sym, coin.id, this._quoteOf(coin), 'chart');
+      this._pricePair = { ex, sym };
+      this._priceSubName = 'chart-engine';
+      PS.subscribe(this._priceSubName, () => {
+        const p = PS.getPrice(ex, sym) || PS.getByCoin(coin.id);
+        if (p && p.price != null) {
+          this._lastTick = p.price;
+          this._renderLiveCandle();
+        }
+      });
+    }
+
+    _candleWsConnect(ex, sym) {
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
       const url = `${proto}://${location.host}/api/candles/ws`
                 + `?exchange=${encodeURIComponent(ex)}`
                 + `&pair=${encodeURIComponent(sym)}`
                 + `&timeframe=${encodeURIComponent(Store.timeframe)}`;
-      try {
-        this._ws = new WebSocket(url);
-      } catch (e) { return; }
+      try { this._ws = new WebSocket(url); } catch (e) { return; }
 
       this._ws.onopen = () => { this._wsBackoff = 1; };
       this._ws.onmessage = (ev) => {
         try {
           const msg = JSON.parse(ev.data);
-          if (msg.type === 'candle') this._onLiveCandle(msg.candle);
-          // type 'unsupported' → este par no tiene vela en vivo; se ignora
+          if (msg.type === 'candle' && msg.candle) {
+            this._baseCandle = msg.candle;      // trae volumen y forma oficiales
+            this._renderLiveCandle();
+          }
         } catch (e) {}
       };
       this._ws.onclose = () => { this._wsReconnect(); };
       this._ws.onerror = () => { try { this._ws.close(); } catch (e) {} };
     }
 
-    _onLiveCandle(c) {
-      // c: {time, open, high, low, close, volume} — la vela en curso del par+tf.
-      if (!c || !this._candleSeries) return;
+    _wsReconnect() {
+      if (this._wsTimer) return;
+      const delay = Math.min(this._wsBackoff * 1000, 30000);
+      this._wsTimer = setTimeout(() => {
+        this._wsTimer = null;
+        this._wsBackoff = Math.min(this._wsBackoff * 2, 32);
+        const c = Store.coin;
+        if (c.exchange && c.exSymbol) this._candleWsConnect(c.exchange, c.exSymbol);
+      }, delay);
+    }
+
+    _disconnectPrice() {
+      if (this._wsTimer) { clearTimeout(this._wsTimer); this._wsTimer = null; }
+      if (this._ws) { try { this._ws.close(); } catch (e) {} this._ws = null; }
+      const PS = NS.PriceService;
+      if (PS && this._priceSubName) {
+        try { PS.unsubscribe(this._priceSubName); } catch (e) {}
+      }
+      if (PS && this._pricePair) {
+        try { PS.untrack(this._pricePair.ex, this._pricePair.sym, 'chart'); } catch (e) {}
+      }
+      this._priceSubName = null;
+      this._pricePair = null;
+      this._baseCandle = null;
+      this._lastTick = null;
+    }
+
+    _quoteOf(coin) {
+      const sym = (coin.exSymbol || '').toUpperCase();
+      for (const q of ['USDT', 'USDC', 'BTC', 'ETH', 'USD']) {
+        if (sym.endsWith(q)) return q;
+      }
+      return 'USDT';
+    }
+
+    /**
+     * Dibuja la vela en curso combinando ambas fuentes:
+     *   base (candle_stream): time, open, high, low, volume  ← oficiales
+     *   tick (price_stream):  close                          ← sincronizado
+     * Si aún no llegó la vela base, se usa la última del histórico como base
+     * (así el volumen nunca queda en 0: mantiene el del histórico hasta que
+     * llegue la primera vela en vivo).
+     */
+    _renderLiveCandle() {
+      if (!this._candleSeries) return;
       const n = this._allCandles.length;
       if (!n) return;
-      const last = this._allCandles[n - 1];
+
+      const base = this._baseCandle || this._allCandles[n - 1];
+      if (!base) return;
+
+      // Normalizar a números (evita deformar la vela si algo llega como string)
+      const o = Number(base.open), h = Number(base.high),
+            l = Number(base.low),  c = Number(base.close);
+      if (!isFinite(o) || !isFinite(h) || !isFinite(l) || !isFinite(c)) return;
+
+      // Close: usar el tick del price_stream SOLO si cae dentro del rango real de
+      // la vela oficial. Si está fuera (fuentes en momentos distintos), usar el
+      // close oficial. Así la vela nunca se deforma.
+      let close = c;
+      const tick = Number(this._lastTick);
+      if (isFinite(tick) && tick >= l && tick <= h) close = tick;
 
       const candle = {
-        time:  c.time,
-        open:  c.open,
-        high:  c.high,
-        low:   c.low,
-        close: c.close,
-        volume: c.volume != null ? c.volume : 0,
+        time:   base.time,
+        open:   o,
+        high:   h,
+        low:    l,
+        close:  close,
+        volume: Number(base.volume) || 0,
       };
 
       try {
@@ -315,31 +401,29 @@
         });
       } catch (e) { return; }
 
-      // Actualizar el buffer local: si es el mismo período, reemplaza la última;
-      // si es un período nuevo (time mayor), la agrega.
-      if (c.time === last.time) {
+      const last = this._allCandles[n - 1];
+      if (candle.time === last.time) {
         this._allCandles[n - 1] = candle;
-      } else if (c.time > last.time) {
+      } else if (candle.time > last.time) {
         this._allCandles.push(candle);
       }
       Coords.setCandles(this._allCandles);
       Store.updateCandle(candle);
+
+      // Header con el MISMO close dibujado (una sola lectura del precio).
+      try {
+        const priceEl = document.getElementById('chart-coin-price');
+        if (priceEl) {
+          const fmt = (NS.DrawingGeo && NS.DrawingGeo.fmtPrice)
+            ? NS.DrawingGeo.fmtPrice(candle.close)
+            : String(candle.close);
+          priceEl.textContent = fmt;
+        }
+      } catch (e) {}
     }
 
-    _wsReconnect() {
-      if (this._wsTimer) return;
-      const delay = Math.min(this._wsBackoff * 1000, 30000);
-      this._wsTimer = setTimeout(() => {
-        this._wsTimer = null;
-        this._wsBackoff = Math.min(this._wsBackoff * 2, 32);
-        this.wsConnect();
-      }, delay);
-    }
-
-    _wsDisconnect() {
-      if (this._wsTimer) { clearTimeout(this._wsTimer); this._wsTimer = null; }
-      if (this._ws) { try { this._ws.close(); } catch (e) {} this._ws = null; }
-    }
+    // Compat: destroyChart() llama a _wsDisconnect().
+    _wsDisconnect() { this._disconnectPrice(); }
 
     tfSeconds(tf) { return TF_SECONDS[tf] || 86400; }
   }

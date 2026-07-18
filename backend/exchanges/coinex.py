@@ -167,8 +167,10 @@ class CoinEx(ExchangeAdapter):
         if not period:
             return []
         params = {"market": symbol, "period": period, "limit": min(limit, 1000)}
-        if start_ms: params["start_time"] = start_ms // 1000
-        if end_ms:   params["end_time"]   = end_ms // 1000
+        # CoinEx v2 spot kline espera start_time/end_time en MILISEGUNDOS
+        # (igual que el created_at que devuelve, ej. 1784246400000). NO dividir.
+        if start_ms: params["start_time"] = start_ms
+        if end_ms:   params["end_time"]   = end_ms
         async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
             r = await c.get(f"{_REST}/v2/spot/kline", params=params)
             if r.status_code != 200:
