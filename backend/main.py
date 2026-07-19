@@ -30,6 +30,7 @@ from backend.services.price_stream import run_price_stream
 from backend.api.candles import router as candles_router
 from backend.api.domain_router import router as domain_router
 from backend.domain import AxiomDomain
+from backend.api.chat import router as chat_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -56,6 +57,7 @@ def _inject_version(html: str) -> str:
     html = re.sub(r'(src="/static/[^"]+\.js)"',  rf'\1?v={_CACHE_VER}"', html)
     return html
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.db_pool = await asyncpg.create_pool(
@@ -77,6 +79,7 @@ async def lifespan(app: FastAPI):
     await app.state.db_pool.close()
     logging.info("[AXIOM v2] Pool de PostgreSQL cerrado")
 
+
 app = FastAPI(
     title="AXIOM v2",
     description="Cockpit personal de trading profesional",
@@ -93,11 +96,12 @@ app.include_router(watchlist_router)
 app.include_router(strat_router)
 app.include_router(prices_router)
 app.include_router(candles_router)
-app.include_router(domain_router)
 load_strategies()
 app.include_router(alerts_router)
 app.include_router(bot_router)
 app.include_router(orderbook_router)
+app.include_router(domain_router)
+app.include_router(chat_router)
 app.mount("/static", StaticFiles(directory=FRONTEND_DIR / "static"), name="static")
 
 
