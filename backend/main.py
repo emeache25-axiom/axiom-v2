@@ -31,6 +31,7 @@ from backend.api.candles import router as candles_router
 from backend.api.domain_router import router as domain_router
 from backend.domain import AxiomDomain
 from backend.api.chat import router as chat_router
+from backend.api.pairs import router as pairs_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -102,6 +103,7 @@ app.include_router(bot_router)
 app.include_router(orderbook_router)
 app.include_router(domain_router)
 app.include_router(chat_router)
+app.include_router(pairs_router)
 app.mount("/static", StaticFiles(directory=FRONTEND_DIR / "static"), name="static")
 
 

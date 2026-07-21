@@ -32,6 +32,9 @@
     <button class="nav-btn" data-screen="bot"       onclick="Router.go('bot')">
       <i class="ti ti-robot" aria-hidden="true"></i> Bot
     </button>
+    <button class="nav-btn" data-screen="chat"      onclick="Router.go('chat')">
+      <i class="ti ti-message-circle" aria-hidden="true"></i> Kepler
+    </button>
   </div>
 </nav>
 
@@ -51,6 +54,9 @@
   <button class="bot-btn" data-screen="bot"       onclick="Router.go('bot')">
     <i class="ti ti-robot" aria-hidden="true"></i> Bot
   </button>
+  <button class="bot-btn" data-screen="chat"      onclick="Router.go('chat')">
+    <i class="ti ti-message-circle" aria-hidden="true"></i> Kepler
+  </button>
 </nav>
 
 <main id="app">
@@ -60,6 +66,7 @@
     <div id="screen-charts"    class="screen"></div>
     <div id="screen-news"      class="screen"><div class="placeholder"><i class="ti ti-news" aria-hidden="true"></i><p>Noticias — próximamente</p></div></div>
     <div id="screen-bot"       class="screen"><div class="placeholder"><i class="ti ti-robot" aria-hidden="true"></i><p>Bot — próximamente</p></div></div>
+    <div id="screen-chat"      class="screen"></div>
   </div>
 </main>
 
@@ -99,6 +106,7 @@
 <script src="/static/js/screens/bot.js"></script>
 <script src="/static/js/screens/bot_orderbook.js"></script>
 <script src="/static/js/screens/regime.js"></script>
+<script src="/static/js/screens/chat.js"></script>
 <script src="/static/js/app.js"></script>
 </body>
 </html>

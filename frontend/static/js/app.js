@@ -5,6 +5,7 @@ window.Screens = {
   charts:    ChartsScreen,
   news:      NewsScreen,
   bot:       BotScreen,
+  chat:      ChatScreen,
 };
 
 document.addEventListener('DOMContentLoaded', () => {
