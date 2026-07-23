@@ -26,6 +26,9 @@
     <button class="nav-btn" data-screen="charts"    onclick="Router.go('charts')">
       <i class="ti ti-chart-candle" aria-hidden="true"></i> Gráficos
     </button>
+    <button class="nav-btn" data-screen="pairs"     onclick="Router.go('pairs')">
+      <i class="ti ti-arrows-exchange" aria-hidden="true"></i> Pares
+    </button>
     <button class="nav-btn" data-screen="news"      onclick="Router.go('news')">
       <i class="ti ti-news" aria-hidden="true"></i> Noticias
     </button>
@@ -48,6 +51,9 @@
   <button class="bot-btn" data-screen="charts"    onclick="Router.go('charts')">
     <i class="ti ti-chart-candle" aria-hidden="true"></i> Gráficos
   </button>
+  <button class="bot-btn" data-screen="pairs"     onclick="Router.go('pairs')">
+    <i class="ti ti-arrows-exchange" aria-hidden="true"></i> Pares
+  </button>
   <button class="bot-btn" data-screen="news"      onclick="Router.go('news')">
     <i class="ti ti-news" aria-hidden="true"></i> Noticias
   </button>
@@ -64,6 +70,7 @@
     <div id="screen-regime"    class="screen"></div>
     <div id="screen-watchlist" class="screen"><div class="placeholder"><i class="ti ti-list" aria-hidden="true"></i><p>Watchlist — próximamente</p></div></div>
     <div id="screen-charts"    class="screen"></div>
+    <div id="screen-pairs"     class="screen"></div>
     <div id="screen-news"      class="screen"><div class="placeholder"><i class="ti ti-news" aria-hidden="true"></i><p>Noticias — próximamente</p></div></div>
     <div id="screen-bot"       class="screen"><div class="placeholder"><i class="ti ti-robot" aria-hidden="true"></i><p>Bot — próximamente</p></div></div>
     <div id="screen-chat"      class="screen"></div>
@@ -106,6 +113,7 @@
 <script src="/static/js/screens/bot.js"></script>
 <script src="/static/js/screens/bot_orderbook.js"></script>
 <script src="/static/js/screens/regime.js"></script>
+<script src="/static/js/screens/pairs.js"></script>
 <script src="/static/js/screens/chat.js"></script>
 <script src="/static/js/app.js"></script>
 </body>

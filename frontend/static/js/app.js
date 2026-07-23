@@ -5,6 +5,7 @@ window.Screens = {
   charts:    ChartsScreen,
   news:      NewsScreen,
   bot:       BotScreen,
+  pairs:     PairsScreen,
   chat:      ChatScreen,
 };
 

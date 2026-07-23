@@ -94,10 +94,19 @@ Ordenados por cercanía a la brújula (¿ayuda a operar?), no por cuándo aparec
   el spread importa para el screener.
 
 ### 4.2 Arquitectura de presentación
-- **WidgetRegistry (frontend)**: la mitad de la arquitectura de dominio que quedó
-  sin construir. Gemelo de `IndicatorRegistry`. Los widgets consumen la capa de
-  dominio y componen las vistas. Es lo que hace *visible* todo el backend que se
-  construyó. **Pendiente desde hace varias sesiones.**
+- **Componentes adaptables / responsivos**: cómo se comporta cada componente
+  según el espacio disponible. Detectado al construir la tabla de pares: con 11
+  columnas necesita scroll horizontal, y eso impide fijar el encabezado
+  (`position:sticky` no atraviesa ancestros con `overflow`). El problema es
+  general, no de esta tabla: aplica también a watchlist, panel del gráfico y
+  cualquier vista densa. Requiere decidir breakpoints, qué columnas se ocultan
+  en pantallas chicas, y cómo se reorganiza cada widget. **Frente propio, con
+  su propio diseño.**
+- **WidgetRegistry (frontend)**: la mitad de la arquitectura de dominio que
+  quedó sin construir. Gemelo de `IndicatorRegistry`. Los widgets consumen la
+  capa de dominio y componen las vistas. Es lo que hace *visible* todo el
+  backend que se construyó. Está emparentado con el punto anterior: un widget
+  debería declarar tanto qué datos consume como cómo se adapta al espacio.
 
 ### 4.3 IA y automatización
 - **Más tools del chat**: mapa_sectores, top_coins, noticias_coin, info_proyecto,

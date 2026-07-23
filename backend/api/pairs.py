@@ -17,16 +17,28 @@ from backend.services import pairs_sync
 router = APIRouter(prefix="/api/pairs", tags=["pairs"])
 logger = logging.getLogger(__name__)
 
-# Columnas por las que se puede ordenar (whitelist: evita inyección)
+# Columnas ordenables (whitelist: evita inyección SQL).
+# La dirección la define el parámetro `dir`, no la columna.
 _ORDEN = {
-    "volumen":     "p.volume_24h DESC NULLS LAST",
-    # Las tres métricas de volatilidad
-    "volatilidad": "p.volatility_30d DESC NULLS LAST",   # rango diario medio (principal)
-    "desvio":      "p.volatility_std DESC NULLS LAST",   # desvío de retornos
-    "repetible":   "p.range_days_pct DESC NULLS LAST",   # % días sobre umbral
-    "spread":      "p.spread_pct ASC NULLS LAST",
-    "cambio":      "p.change_24h DESC NULLS LAST",
-    "rank":        "c.rank ASC NULLS LAST",
+    "par":         "p.pair_symbol",
+    "exchange":    "p.exchange",
+    "precio":      "p.last_price",
+    "volumen":     "p.volume_24h",
+    "cambio":      "p.change_24h",
+    "volatilidad": "p.volatility_30d",   # rango diario medio (principal)
+    "desvio":      "p.volatility_std",   # desvío de retornos
+    "repetible":   "p.range_days_pct",   # % días sobre umbral
+    "spread":      "p.spread_pct",
+    "velas":       "p.candles_count",
+    "coin":        "c.name",
+    "rank":        "c.rank",
+}
+
+# Dirección por defecto de cada columna (la que tiene más sentido al elegirla).
+# Texto ascendente; métricas descendente; spread ascendente (menos es mejor).
+_DIR_DEFAULT = {
+    "par": "asc", "exchange": "asc", "coin": "asc",
+    "spread": "asc", "rank": "asc",
 }
 
 
@@ -93,8 +105,10 @@ async def listar(
     supercat: str = Query("", description="Sector de la coin"),
     solo_con_info: bool = Query(False, description="Solo pares con coin identificada en CoinGecko"),
     solo_tradeables: bool = Query(True),
-    orden: str = Query("volumen", description="volumen | volatilidad | desvio | repetible | spread | cambio | rank"),
+    orden: str = Query("volumen", description="par|exchange|precio|volumen|cambio|volatilidad|desvio|repetible|spread|velas|coin|rank"),
+    dir: str = Query("", description="asc | desc (vacío = default de la columna)"),
     limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0, description="Desde qué fila (paginación)"),
 ):
     """
     Listado de pares con la metadata de su coin. Es la base del screener:
@@ -129,6 +143,26 @@ async def listar(
     if supercat:
         where.append(f"c.supercat = {_arg(supercat)}")
 
+    # ORDER BY: columna desde la whitelist, dirección validada.
+    # NULLS LAST siempre, para que los pares sin métrica queden al final
+    # independientemente del sentido.
+    col = _ORDEN.get(orden, _ORDEN["volumen"])
+    sentido = (dir or "").lower()
+    if sentido not in ("asc", "desc"):
+        sentido = _DIR_DEFAULT.get(orden, "desc")
+    order_by = f"{col} {sentido.upper()} NULLS LAST"
+
+    where_sql = "WHERE " + " AND ".join(where) if where else ""
+
+    # Total de coincidencias (sin paginar) — necesario para saber cuántas
+    # páginas hay. Se cuenta con los mismos filtros que la consulta principal.
+    sql_count = f"""
+        SELECT COUNT(*)
+        FROM pairs p
+        LEFT JOIN coins c ON c.id = p.coin_id
+        {where_sql}
+    """
+
     sql = f"""
         SELECT p.id, p.exchange, p.pair_symbol, p.base, p.quote,
                p.last_price, p.volume_24h, p.change_24h, p.spread_pct,
@@ -136,20 +170,27 @@ async def listar(
                p.coin_id, c.name, c.rank, c.market_cap, c.supercat, c.image
         FROM pairs p
         LEFT JOIN coins c ON c.id = p.coin_id
-        {"WHERE " + " AND ".join(where) if where else ""}
-        ORDER BY {_ORDEN.get(orden, _ORDEN["volumen"])}
-        LIMIT {int(limit)}
+        {where_sql}
+        ORDER BY {order_by}
+        LIMIT {int(limit)} OFFSET {int(offset)}
     """
 
     async with pool.acquire() as conn:
+        total = await conn.fetchval(sql_count, *args)
         rows = await conn.fetch(sql, *args)
 
     def _f(v):
         return float(v) if v is not None else None
 
     return {
-        "total": len(rows),
+        "total": total,                    # coincidencias totales (sin paginar)
+        "mostrados": len(rows),            # filas en esta página
+        "offset": offset,
+        "limit": limit,
+        "paginas": (total + limit - 1) // limit if total else 0,
+        "pagina": offset // limit + 1 if limit else 1,
         "orden": orden,
+        "dir": sentido,
         "pares": [{
             "id": r["id"],
             "exchange": r["exchange"],
