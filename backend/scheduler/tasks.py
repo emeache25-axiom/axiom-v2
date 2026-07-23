@@ -37,7 +37,12 @@ async def _run_sync_categories(pool) -> None:
 
 
 async def _run_ohlcv_incremental(pool) -> None:
-    """Tarea diaria: sync incremental de OHLCV (00:01 GMT)."""
+    """
+    OBSOLETO — job desactivado (ver start_scheduler).
+    Pedía ~2.400 coins de a una a CoinGecko contra un límite de ~30/min:
+    nunca completaba. Reemplazado por _run_sync_pair_ohlcv.
+    Se elimina junto con ohlcv_sync.py al cerrar la migración.
+    """
     from backend.services.ohlcv_sync import sync_incremental
     try:
         logger.info("[scheduler] Iniciando sync OHLCV incremental...")
@@ -48,7 +53,11 @@ async def _run_ohlcv_incremental(pool) -> None:
 
 
 async def _run_ohlcv_full_bg(pool) -> None:
-    """Tarea de arranque: sync completo OHLCV en background (si faltan datos)."""
+    """
+    OBSOLETO — job desactivado (ver start_scheduler).
+    Además, su chequeo de cobertura medía cuántas coins tenían ALGUNA fila,
+    no si los datos estaban frescos: daba 95,6% con 13 días de retraso.
+    """
     from backend.services.ohlcv_sync import sync_full, get_sync_status
     try:
         status = await get_sync_status(pool)
@@ -60,6 +69,56 @@ async def _run_ohlcv_full_bg(pool) -> None:
         logger.info(f"[scheduler] OHLCV sync_full completado: {result['processed']} coins, {result['inserted']} filas")
     except Exception as exc:
         logger.error(f"[scheduler] Error en OHLCV sync_full: {exc}")
+
+
+async def _run_sync_pairs(pool) -> None:
+    """
+    Cada 6 h: refresca el catálogo de pares tradeables de MEXC/CoinEx y los
+    vincula con el catálogo de coins. Solo 2 llamadas (una por exchange).
+    """
+    from backend.services.pairs_sync import sync_pairs, vincular_coins
+    try:
+        logger.info("[scheduler] Sincronizando catálogo de pares...")
+        r = await sync_pairs(pool)
+        v = await vincular_coins(pool)
+        logger.info(
+            f"[scheduler] Pares OK: {r.get('procesados', 0)} procesados, "
+            f"{r.get('deslistados', 0)} deslistados · "
+            f"{v.get('vinculados', 0)} con coin, {v.get('sin_vinculo', 0)} sin coin"
+        )
+    except Exception as exc:
+        logger.error(f"[scheduler] Error en sync de pares: {exc}")
+
+
+async def _run_sync_tickers(pool) -> None:
+    """
+    Cada 15 min: refresca precio, volumen 24h, variación y spread de TODOS los
+    pares. Solo 2 llamadas — es lo que mantiene vivo el ranking del screener.
+    """
+    from backend.services.pairs_sync import sync_tickers
+    try:
+        r = await sync_tickers(pool)
+        logger.info(f"[scheduler] Tickers OK: {r.get('actualizados', 0)} pares")
+    except Exception as exc:
+        logger.error(f"[scheduler] Error en sync de tickers: {exc}")
+
+
+async def _run_sync_pair_ohlcv(pool) -> None:
+    """
+    Diario (00:30 UTC): velas diarias de los pares con volumen sobre el umbral,
+    desde los exchanges. Recalcula las tres métricas de volatilidad que ordenan
+    el screener. Tarda ~2-3 min para ~2.100 pares.
+    """
+    from backend.services.pair_ohlcv_sync import sync_pair_ohlcv
+    try:
+        logger.info("[scheduler] Iniciando sync de velas por par...")
+        r = await sync_pair_ohlcv(pool)
+        logger.info(
+            f"[scheduler] Velas OK: {r.get('ok', 0)}/{r.get('procesados', 0)} pares "
+            f"con velas, {r.get('sin_velas', 0)} sin datos"
+        )
+    except Exception as exc:
+        logger.error(f"[scheduler] Error en sync de velas por par: {exc}")
 
 
 async def _run_snapshot(pool) -> None:
@@ -178,23 +237,59 @@ def start_scheduler(pool) -> None:
         coalesce=True,
     )
 
-    # OHLCV incremental — diariamente a las 00:01 GMT
+    # ── OHLCV de coins en USD (CoinGecko) — DESACTIVADO ──────────────────────
+    # El sync incremental pedía ~2.400 coins de a UNA a CoinGecko (límite
+    # ~30/min): nunca terminaba y devolvía 0 filas con 2.392 errores diarios.
+    # Reemplazado por el sync de velas POR PAR desde los exchanges (abajo).
+    # Se elimina junto con ohlcv_sync.py cuando termine la migración de los
+    # screeners a pair_ohlcv. Ver AXIOM_modelo_pares.md §6.2.
+    #
+    # _scheduler.add_job(
+    #     _run_ohlcv_incremental, trigger="cron", hour=0, minute=1,
+    #     timezone="UTC", args=[pool], id="ohlcv_incremental_job",
+    #     name="OHLCV sync diario", misfire_grace_time=1800, coalesce=True,
+    # )
+    # _asyncio.get_event_loop().create_task(_run_ohlcv_full_bg(pool))
+
+    # ── PARES (el universo tradeable) ────────────────────────────────────────
+
+    # Catálogo de pares cada 6 h — 2 llamadas
     _scheduler.add_job(
-        _run_ohlcv_incremental,
-        trigger="cron",
-        hour=0,
-        minute=1,
-        timezone="UTC",
+        _run_sync_pairs,
+        trigger="interval",
+        hours=6,
         args=[pool],
-        id="ohlcv_incremental_job",
-        name="OHLCV sync diario",
-        misfire_grace_time=1800,
+        id="sync_pairs_job",
+        name="Sync catálogo de pares",
+        misfire_grace_time=600,
         coalesce=True,
     )
 
-    # OHLCV full — al arranque, en background, solo si faltan datos
-    import asyncio as _asyncio
-    _asyncio.get_event_loop().create_task(_run_ohlcv_full_bg(pool))
+    # Tickers cada 15 min — 2 llamadas; mantiene vivo el ranking
+    _scheduler.add_job(
+        _run_sync_tickers,
+        trigger="interval",
+        minutes=15,
+        args=[pool],
+        id="sync_tickers_job",
+        name="Sync tickers de pares",
+        misfire_grace_time=300,
+        coalesce=True,
+    )
+
+    # Velas por par + métricas de volatilidad — diario 00:30 UTC
+    _scheduler.add_job(
+        _run_sync_pair_ohlcv,
+        trigger="cron",
+        hour=0,
+        minute=30,
+        timezone="UTC",
+        args=[pool],
+        id="sync_pair_ohlcv_job",
+        name="Velas por par (screener)",
+        misfire_grace_time=3600,
+        coalesce=True,
+    )
 
     # Bot v2 — ciclo de estrategias cada 5 minutos
     _scheduler.add_job(
@@ -208,7 +303,11 @@ def start_scheduler(pool) -> None:
         coalesce=True,
     )
     _scheduler.start()
-    logger.info("[scheduler] Scheduler iniciado — snapshot/60min · precios/6h · categorías/7d · ohlcv/00:01GMT")
+    logger.info(
+        "[scheduler] Scheduler iniciado — snapshot/60min · alertas/1min · "
+        "bots/5min · precios coins/6h · categorías/7d · "
+        "pares/6h · tickers/15min · velas por par/00:30UTC"
+    )
 
 
 def stop_scheduler() -> None:
