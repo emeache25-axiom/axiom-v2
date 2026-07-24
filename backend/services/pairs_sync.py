@@ -197,6 +197,45 @@ async def _fetch_coinex_tickers() -> dict:
     return out
 
 
+async def _fetch_coinex_depth(symbols: list[str], concurrencia: int = 6) -> dict:
+    """
+    bid/ask de CoinEx. Su ticker masivo NO los trae (campos: close, high, last,
+    low, market, open, period, value, volume, volume_buy, volume_sell), y el
+    endpoint de depth acepta UN mercado por llamada (market_list da error 4004).
+
+    Se piden en paralelo: ~1.100 pares tardan unos 2 minutos, sin rate limit.
+    Solo se usa en el sync de tickers, no en cada request.
+    """
+    out = {}
+    sem = asyncio.Semaphore(concurrencia)
+
+    async def _uno(client, market: str):
+        async with sem:
+            try:
+                r = await client.get(
+                    "https://api.coinex.com/v2/spot/depth",
+                    params={"market": market, "limit": 5, "interval": "0"})
+                if r.status_code != 200:
+                    return
+                body = r.json()
+                if body.get("code") != 0:
+                    return
+                dep = (body.get("data") or {}).get("depth") or {}
+                bids = dep.get("bids") or []
+                asks = dep.get("asks") or []
+                bid = _f(bids[0][0]) if bids and bids[0] else None
+                ask = _f(asks[0][0]) if asks and asks[0] else None
+                if bid or ask:
+                    out[market] = {"bid": bid, "ask": ask}
+            except Exception:
+                pass
+
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
+        await asyncio.gather(*[_uno(c, s) for s in symbols])
+
+    return out
+
+
 def _f(v):
     try:
         return float(v) if v not in (None, "") else None
@@ -204,7 +243,8 @@ def _f(v):
         return None
 
 
-async def sync_tickers(pool) -> dict:
+async def sync_tickers(pool, con_spread_coinex: bool = False,
+                       min_volumen_spread: float = 0) -> dict:
     """
     Refresca precio, volumen, variación y spread de todos los pares.
     Dos llamadas (una por exchange). Es lo que mantiene vivo el ranking.
@@ -212,6 +252,12 @@ async def sync_tickers(pool) -> dict:
     El volumen se normaliza a USD: los pares con quote USDT/USDC ya están en
     dólares; los que cotizan contra BTC/ETH se convierten con el precio de esa
     quote (tomado de los propios tickers).
+
+    con_spread_coinex — MEXC entrega bid/ask en su ticker masivo; CoinEx no.
+        Con este flag se piden además los libros de CoinEx (una llamada por par,
+        ~2 min para 1.100 pares). Se corre espaciado, no en cada ciclo.
+    min_volumen_spread — si se pide el spread, limitarlo a los pares de CoinEx
+        que superen este volumen (0 = todos).
     """
     mexc, coinex = await asyncio.gather(
         _fetch_mexc_tickers(), _fetch_coinex_tickers(), return_exceptions=True)
@@ -238,6 +284,27 @@ async def sync_tickers(pool) -> dict:
             "SELECT id, exchange, pair_symbol, quote FROM pairs WHERE exchange = ANY($1::text[])",
             list(EXCHANGES))
 
+        # bid/ask de CoinEx (una llamada por par) — solo si se pidió
+        depth_coinex = {}
+        if con_spread_coinex:
+            candidatos = []
+            for r in filas:
+                if r["exchange"] != "coinex":
+                    continue
+                if min_volumen_spread > 0:
+                    t = coinex.get(r["pair_symbol"])
+                    vol = (t or {}).get("volume")
+                    factor = ref.get((r["quote"] or "").upper())
+                    vol_usd = vol * factor if (vol and factor) else 0
+                    if vol_usd < min_volumen_spread:
+                        continue
+                candidatos.append(r["pair_symbol"])
+            if candidatos:
+                logger.info("[sync_tickers] pidiendo libros de %s pares de CoinEx…",
+                            len(candidatos))
+                depth_coinex = await _fetch_coinex_depth(candidatos)
+                logger.info("[sync_tickers] libros obtenidos: %s", len(depth_coinex))
+
         updates = []
         for r in filas:
             fuente = mexc if r["exchange"] == "mexc" else coinex
@@ -250,26 +317,50 @@ async def sync_tickers(pool) -> dict:
                 factor = ref.get((r["quote"] or "").upper())
                 vol = vol * factor if factor else None
 
-            spread = None
-            if t["bid"] and t["ask"] and t["ask"] > 0:
-                mid = (t["bid"] + t["ask"]) / 2
-                if mid > 0:
-                    spread = (t["ask"] - t["bid"]) / mid * 100
+            # bid/ask: MEXC los trae en el ticker; CoinEx solo si se pidió depth
+            bid, ask = t["bid"], t["ask"]
+            if r["exchange"] == "coinex":
+                d = depth_coinex.get(r["pair_symbol"])
+                if d:
+                    bid, ask = d["bid"], d["ask"]
 
-            updates.append((r["id"], t["last"], vol, t["change"],
-                            t["bid"], t["ask"], spread))
+            spread = None
+            if bid and ask and ask > 0:
+                mid = (bid + ask) / 2
+                if mid > 0:
+                    spread = (ask - bid) / mid * 100
+
+            # Si no se pidió el depth, no pisar el spread guardado antes con NULL
+            if r["exchange"] == "coinex" and not con_spread_coinex:
+                updates.append(("sin_spread", r["id"], t["last"], vol, t["change"]))
+            else:
+                updates.append(("full", r["id"], t["last"], vol, t["change"],
+                                bid, ask, spread))
 
         if updates:
+            full = [u[1:] for u in updates if u[0] == "full"]
+            parcial = [u[1:] for u in updates if u[0] == "sin_spread"]
             async with conn.transaction():
-                await conn.executemany("""
-                    UPDATE pairs SET
-                        last_price = $2, volume_24h = $3, change_24h = $4,
-                        bid = $5, ask = $6, spread_pct = $7, updated_at = now()
-                    WHERE id = $1
-                """, updates)
+                if full:
+                    await conn.executemany("""
+                        UPDATE pairs SET
+                            last_price = $2, volume_24h = $3, change_24h = $4,
+                            bid = $5, ask = $6, spread_pct = $7, updated_at = now()
+                        WHERE id = $1
+                    """, full)
+                if parcial:
+                    # CoinEx sin depth: se actualiza todo menos bid/ask/spread,
+                    # que conservan el último valor conocido.
+                    await conn.executemany("""
+                        UPDATE pairs SET
+                            last_price = $2, volume_24h = $3, change_24h = $4,
+                            updated_at = now()
+                        WHERE id = $1
+                    """, parcial)
 
-    logger.info("[sync_tickers] %s pares actualizados", len(updates))
-    return {"actualizados": len(updates)}
+    logger.info("[sync_tickers] %s pares actualizados%s", len(updates),
+                f" · {len(depth_coinex)} con spread de CoinEx" if depth_coinex else "")
+    return {"actualizados": len(updates), "spread_coinex": len(depth_coinex)}
 
 
 # ══ 3. VINCULACIÓN PAR → COIN ═════════════════════════════════════════════════

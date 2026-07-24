@@ -64,10 +64,28 @@ async def sync(request: Request, tickers: bool = True, vincular: bool = True):
     return out
 
 
+@router.post("/sync-spread")
+async def sync_spread(
+    request: Request,
+    min_volumen: float = Query(0, description="Solo pares de CoinEx sobre este volumen (0 = todos)"),
+):
+    """
+    Trae los libros de órdenes de CoinEx para calcular el spread.
+    Su ticker masivo no da bid/ask, así que hace falta una llamada por par:
+    ~2 minutos para los 1.110 pares. MEXC ya lo trae en el ticker.
+    """
+    from backend.services import pairs_sync
+    return await pairs_sync.sync_tickers(
+        request.app.state.db_pool,
+        con_spread_coinex=True,
+        min_volumen_spread=min_volumen,
+    )
+
+
 @router.post("/sync-velas")
 async def sync_velas(
     request: Request,
-    min_volumen: float = Query(10000, description="Volumen 24h mínimo en USD"),
+    min_volumen: float = Query(1000, description="Volumen 24h mínimo en USD"),
     umbral_rango: float = Query(3.0, description="% de rango que cuenta como 'día que se movió'"),
     limite: int = Query(0, description="Tope de pares (0 = todos)"),
 ):

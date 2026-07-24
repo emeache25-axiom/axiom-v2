@@ -121,6 +121,21 @@ async def _run_sync_pair_ohlcv(pool) -> None:
         logger.error(f"[scheduler] Error en sync de velas por par: {exc}")
 
 
+async def _run_sync_spread_coinex(pool) -> None:
+    """
+    Cada hora: libros de órdenes de CoinEx para calcular el spread.
+    Su ticker masivo no trae bid/ask (MEXC sí), así que hace falta una llamada
+    por par: ~2 min para 1.110 pares. Por eso va aparte del sync de tickers,
+    que corre cada 15 min y es instantáneo.
+    """
+    from backend.services.pairs_sync import sync_tickers
+    try:
+        r = await sync_tickers(pool, con_spread_coinex=True)
+        logger.info(f"[scheduler] Spread CoinEx OK: {r.get('spread_coinex', 0)} pares")
+    except Exception as exc:
+        logger.error(f"[scheduler] Error en spread de CoinEx: {exc}")
+
+
 async def _run_snapshot(pool) -> None:
     """Tarea periódica: construye y guarda un snapshot del régimen."""
     from backend.services.snapshot import build_snapshot
@@ -274,6 +289,18 @@ def start_scheduler(pool) -> None:
         id="sync_tickers_job",
         name="Sync tickers de pares",
         misfire_grace_time=300,
+        coalesce=True,
+    )
+
+    # Spread de CoinEx (libros) — cada hora; tarda ~2 min
+    _scheduler.add_job(
+        _run_sync_spread_coinex,
+        trigger="interval",
+        hours=1,
+        args=[pool],
+        id="sync_spread_job",
+        name="Spread CoinEx (libros)",
+        misfire_grace_time=600,
         coalesce=True,
     )
 

@@ -26,7 +26,7 @@ const PairsScreen = {
   filtros: {
     quote: '',
     exchange: '',
-    min_volumen: 10000,
+    min_volumen: 1000,
     orden: 'volumen',
     dir: 'desc',
     limit: 100,
@@ -91,7 +91,7 @@ const PairsScreen = {
         </div>
         <div>
           <div class="section-label" style="margin-bottom:6px;">Volumen 24h mínimo (USD)</div>
-          <input id="pairs-minvol" type="number" value="10000" min="0" step="1000"
+          <input id="pairs-minvol" type="number" value="1000" min="0" step="500"
             style="background:var(--c2);border:0.5px solid var(--w1);border-radius:6px;
                    padding:6px 10px;color:var(--t1);font-family:var(--f2);font-size:12px;
                    width:120px;outline:none;">
@@ -400,6 +400,11 @@ const PairsScreen = {
 
     // La celda del par lleva fondo propio: sin él, al scrollear se vería el
     // contenido de las otras columnas pasando por debajo.
+    // Un par sin velas no tiene métricas: se atenúan para distinguirlo de uno
+    // que sí las tiene pero resultó poco volátil.
+    const sinVelas = !p.velas;
+    const dimM = sinVelas ? 'opacity:.35;' : '';
+
     return `
       <div class="pairs-row"
            style="display:grid;grid-template-columns:${this._grid};gap:8px;
@@ -412,11 +417,12 @@ const PairsScreen = {
         <span style="text-align:right;font-family:var(--f2);color:var(--t2);">${this._fmtPrecio(p.precio)}</span>
         <span style="text-align:right;font-family:var(--f2);color:var(--t2);">$${this._fmtVol(p.volumen_24h)}</span>
         <span style="text-align:right;font-family:var(--f2);color:${chCol};">${chTxt}</span>
-        <span style="text-align:right;font-family:var(--f2);color:var(--t1);">${this._fmtPct(p.volatilidad)}</span>
-        <span style="text-align:right;font-family:var(--f2);color:var(--t2);">${this._fmtPct(p.desvio)}</span>
-        <span style="text-align:right;font-family:var(--f2);color:var(--t2);">${this._fmtPct(p.dias_repetible_pct, 0)}</span>
+        <span style="text-align:right;font-family:var(--f2);color:var(--t1);${dimM}">${this._fmtPct(p.volatilidad)}</span>
+        <span style="text-align:right;font-family:var(--f2);color:var(--t2);${dimM}">${this._fmtPct(p.desvio)}</span>
+        <span style="text-align:right;font-family:var(--f2);color:var(--t2);${dimM}">${this._fmtPct(p.dias_repetible_pct, 0)}</span>
         <span style="text-align:right;font-family:var(--f2);color:var(--t2);">${this._fmtPct(p.spread_pct, 3)}</span>
-        <span style="text-align:right;font-family:var(--f2);font-size:10px;color:var(--t3);">${p.velas || 0}</span>
+        <span style="text-align:right;font-family:var(--f2);font-size:10px;color:var(--t3);${dimM}"
+              title="${sinVelas ? 'Sin velas sincronizadas (volumen bajo el umbral del sync)' : ''}">${p.velas || '—'}</span>
         ${coin}
       </div>`;
   },

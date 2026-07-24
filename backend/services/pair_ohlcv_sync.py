@@ -162,13 +162,17 @@ async def _procesar_par(sem, pool, par: dict, umbral_rango: float) -> str:
 
 # ══ Sync completo ═════════════════════════════════════════════════════════════
 
-async def sync_pair_ohlcv(pool, min_volumen: float = 10_000.0,
+async def sync_pair_ohlcv(pool, min_volumen: float = 1_000.0,
                           umbral_rango: float = UMBRAL_RANGO_DEFAULT,
                           limite: int | None = None) -> dict:
     """
     Sincroniza velas diarias de los pares con volumen por encima del umbral.
 
-    min_volumen  — volumen 24h mínimo en USD (configurable por el usuario)
+    min_volumen  — volumen 24h mínimo en USD. Por defecto 1.000: cubre 3.055 de
+                   los 3.246 pares (bajar a 100 solo sumaría 57 más). El umbral
+                   anterior de 10.000 dejaba fuera pares de spread muy fino
+                   —justamente los que interesan para operar en rangos chicos—
+                   porque spread bajo y volumen bajo suelen venir juntos.
     umbral_rango — % de rango que cuenta como "día que se movió" (para
                    range_days_pct)
     limite       — tope de pares a procesar (útil para pruebas)
