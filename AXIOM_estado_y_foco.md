@@ -75,23 +75,15 @@ punta. La tabla `pair_ohlcv` ya está creada (migración 004). Falta:
 Ordenados por cercanía a la brújula (¿ayuda a operar?), no por cuándo aparecieron.
 
 ### 4.1 Datos y universo
-- **Sync de velas por par** (arriba) — el más cercano, desbloquea el screener.
-- **Rehacer/invertir `coins` desde los pares.** Hoy `coins` viene de CoinGecko
-  (2.397, la mitad no operable) y `pairs` de los exchanges (1.889 bases, 719 sin
-  coin). El orden correcto sería: los exchanges definen el universo, CoinGecko
-  enriquece. **Decisión pendiente** (ver §5). Cambio grande: toca mapa de
-  sectores, sugeridas, y todo lo que consume `coins`.
-- **Vinculación par→coin** de los 719 sin coin. Mejoras posibles: normalizar
-  símbolos con paréntesis de MEXC (`GOLD(PAXG)`→PAXG), cruzar por `fullName`,
-  guardar `contractAddress`. Rendimiento esperado modesto (muchos no están en
-  CoinGecko). **No urgente**: esos pares ya funcionan en el screener, solo sin
-  metadata.
-- **Reducir `ohlcv_daily` al top 300** (hoy intenta 2.392 coins, falla). O
-  eliminarla si nadie la consulta tras migrar los screeners a `pair_ohlcv`.
-- **Migrar screeners de watchlist a `pair_ohlcv`** (hoy usan `ohlcv_daily`).
-- **Eliminar `coin_exchanges`** (reemplazada por `pairs`) y `watchlist_old`.
-- **spread de CoinEx**: su ticker no da bid/ask; queda NULL. Pedirlo aparte si
-  el spread importa para el screener.
+- **Cerrar la migración de datos** — ✅ HECHO (25/07/2026). Bot y screener
+  open→high migrados a `pair_ohlcv`; screener de volatilidad eliminado
+  (reemplazado por el de pares); `charts.py` resuelve exchange desde `pairs`
+  (par de mayor volumen); eliminados `ohlcv_sync.py`, `ohlcv_daily`,
+  `watchlist_old` y los jobs obsoletos. `ohlcv_daily` respaldada en dump.
+- **Pendiente único del frente de datos**: el WebSocket de Binance en
+  `charts.py` (~línea 299) todavía usa `coin_exchanges`. Por eso esa tabla NO
+  se eliminó. Es lo último que ata al modelo viejo. Ver §4.2 (emparentado con
+  el WsManager de Binance vs candle_stream).
 
 ### 4.2 Arquitectura de presentación
 - **Componentes adaptables / responsivos**: cómo se comporta cada componente
