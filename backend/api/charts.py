@@ -45,7 +45,7 @@ async def get_history(
 
     Si el frontend envía exchange + ex_symbol, se respeta ESE par exacto
     (permite distinguir ONT/BTC de ONT/USDT). Si no vienen, se resuelve uno
-    desde coin_exchanges (comportamiento anterior, compatible).
+    desde pairs, par de mayor volumen (antes: coin_exchanges).
     """
     if timeframe not in _TIMEFRAMES:
         raise HTTPException(400, f"Timeframe inválido. Válidos: {list(_TIMEFRAMES)}")
@@ -63,8 +63,12 @@ async def get_history(
             coin_id)
         # Solo resolvemos el par si el frontend NO lo especificó.
         if not pair_forzado:
+            # Par de mayor volumen para esta coin (antes: coin_exchanges, que
+            # devolvía un par arbitrario con LIMIT 1 sin orden).
             ex_row = await conn.fetchrow(
-                "SELECT exchange, symbol FROM coin_exchanges WHERE coin_id=$1 LIMIT 1",
+                """SELECT exchange, pair_symbol AS symbol FROM pairs
+                   WHERE coin_id=$1 AND tradeable
+                   ORDER BY volume_24h DESC NULLS LAST LIMIT 1""",
                 coin_id)
             if ex_row:
                 exchange  = ex_row["exchange"]
@@ -160,10 +164,12 @@ async def get_current_price(request: Request, coin_id: str):
         pair_symbol = wl["pair_symbol"]
         quote       = wl["quote"]
     else:
-        # no está en watchlist: resolver desde coin_exchanges
+        # no está en watchlist: resolver desde pairs (par de mayor volumen)
         async with pool.acquire() as conn:
             ex = await conn.fetchrow(
-                "SELECT exchange, symbol FROM coin_exchanges WHERE coin_id=$1 LIMIT 1", coin_id)
+                """SELECT exchange, pair_symbol AS symbol FROM pairs
+                   WHERE coin_id=$1 AND tradeable
+                   ORDER BY volume_24h DESC NULLS LAST LIMIT 1""", coin_id)
         symbol      = coin["symbol"] if coin else coin_id
         exchange    = ex["exchange"] if ex else "coingecko"
         pair_symbol = ex["symbol"]   if ex else None

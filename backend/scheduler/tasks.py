@@ -36,41 +36,6 @@ async def _run_sync_categories(pool) -> None:
         logger.error(f"[scheduler] Error en sync categorías: {exc}")
 
 
-async def _run_ohlcv_incremental(pool) -> None:
-    """
-    OBSOLETO — job desactivado (ver start_scheduler).
-    Pedía ~2.400 coins de a una a CoinGecko contra un límite de ~30/min:
-    nunca completaba. Reemplazado por _run_sync_pair_ohlcv.
-    Se elimina junto con ohlcv_sync.py al cerrar la migración.
-    """
-    from backend.services.ohlcv_sync import sync_incremental
-    try:
-        logger.info("[scheduler] Iniciando sync OHLCV incremental...")
-        result = await sync_incremental(pool)
-        logger.info(f"[scheduler] OHLCV incremental OK: {result['inserted']} filas para {result['date']}, {result['errors']} errores")
-    except Exception as exc:
-        logger.error(f"[scheduler] Error en OHLCV incremental: {exc}")
-
-
-async def _run_ohlcv_full_bg(pool) -> None:
-    """
-    OBSOLETO — job desactivado (ver start_scheduler).
-    Además, su chequeo de cobertura medía cuántas coins tenían ALGUNA fila,
-    no si los datos estaban frescos: daba 95,6% con 13 días de retraso.
-    """
-    from backend.services.ohlcv_sync import sync_full, get_sync_status
-    try:
-        status = await get_sync_status(pool)
-        if status["coverage_pct"] >= 80:
-            logger.info(f"[scheduler] OHLCV ya tiene {status['coverage_pct']}% cobertura — skip full sync")
-            return
-        logger.info(f"[scheduler] OHLCV cobertura {status['coverage_pct']}% — iniciando sync_full en background")
-        result = await sync_full(pool)
-        logger.info(f"[scheduler] OHLCV sync_full completado: {result['processed']} coins, {result['inserted']} filas")
-    except Exception as exc:
-        logger.error(f"[scheduler] Error en OHLCV sync_full: {exc}")
-
-
 async def _run_sync_pairs(pool) -> None:
     """
     Cada 6 h: refresca el catálogo de pares tradeables de MEXC/CoinEx y los
@@ -252,19 +217,6 @@ def start_scheduler(pool) -> None:
         coalesce=True,
     )
 
-    # ── OHLCV de coins en USD (CoinGecko) — DESACTIVADO ──────────────────────
-    # El sync incremental pedía ~2.400 coins de a UNA a CoinGecko (límite
-    # ~30/min): nunca terminaba y devolvía 0 filas con 2.392 errores diarios.
-    # Reemplazado por el sync de velas POR PAR desde los exchanges (abajo).
-    # Se elimina junto con ohlcv_sync.py cuando termine la migración de los
-    # screeners a pair_ohlcv. Ver AXIOM_modelo_pares.md §6.2.
-    #
-    # _scheduler.add_job(
-    #     _run_ohlcv_incremental, trigger="cron", hour=0, minute=1,
-    #     timezone="UTC", args=[pool], id="ohlcv_incremental_job",
-    #     name="OHLCV sync diario", misfire_grace_time=1800, coalesce=True,
-    # )
-    # _asyncio.get_event_loop().create_task(_run_ohlcv_full_bg(pool))
 
     # ── PARES (el universo tradeable) ────────────────────────────────────────
 

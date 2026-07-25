@@ -118,10 +118,20 @@ async def _build_context(conn, coin: dict, regime: dict) -> dict:
         "rsi":              None,
     }
 
-    # OHLCV diario para RSI y S/R (últimas ~120 velas)
+    # OHLCV diario para RSI y S/R (últimas ~120 velas).
+    # Migrado de ohlcv_daily (coin en USD) a pair_ohlcv (par tradeable):
+    # se usa el par de mayor volumen de la coin, que es el que se operaría.
     rows = await conn.fetch("""
-        SELECT close, high, low FROM ohlcv_daily
-        WHERE coin_id = $1 ORDER BY date DESC LIMIT 120
+        SELECT o.close, o.high, o.low
+        FROM pair_ohlcv o
+        JOIN pairs p ON p.id = o.pair_id
+        WHERE p.coin_id = $1 AND p.tradeable
+          AND p.id = (
+              SELECT id FROM pairs
+              WHERE coin_id = $1 AND tradeable
+              ORDER BY volume_24h DESC NULLS LAST LIMIT 1
+          )
+        ORDER BY o.date DESC LIMIT 120
     """, coin["coin_id"])
     if rows:
         closes = [float(r["close"]) for r in reversed(rows)]
