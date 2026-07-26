@@ -8,12 +8,11 @@ los exchanges directamente: le pide velas al Par y el Par sabe de dónde traerla
 Exchange SIEMPRE explícito, sin fallback silencioso entre exchanges.
 """
 from __future__ import annotations
-import asyncio
 import json
 import logging
 from datetime import timezone, datetime
 
-from fastapi import APIRouter, Request, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 
@@ -185,144 +184,11 @@ async def get_current_price(request: Request, coin_id: str):
     }
 
 
-# ── WebSocket Manager ─────────────────────────────────────────────────────────
-
-class WsManager:
-    """
-    Gestiona la conexión WebSocket hacia Binance y los clientes browser.
-    Una conexión a Binance sirve múltiples clientes.
-    """
-    def __init__(self):
-        self._clients:  dict[str, set[WebSocket]] = {}  # symbol → set of ws
-        self._binance_ws = None
-        self._subscribed: set[str] = set()
-        self._task = None
-        self._lock = asyncio.Lock()
-
-    async def connect_client(self, ws: WebSocket, symbol: str):
-        await ws.accept()
-        async with self._lock:
-            if symbol not in self._clients:
-                self._clients[symbol] = set()
-            self._clients[symbol].add(ws)
-            await self._ensure_subscribed(symbol)
-        logger.info(f"[ws] Cliente conectado: {symbol} ({len(self._clients[symbol])} total)")
-
-    async def disconnect_client(self, ws: WebSocket, symbol: str):
-        async with self._lock:
-            if symbol in self._clients:
-                self._clients[symbol].discard(ws)
-                if not self._clients[symbol]:
-                    del self._clients[symbol]
-        logger.info(f"[ws] Cliente desconectado: {symbol}")
-
-    async def broadcast(self, symbol: str, data: dict):
-        clients = self._clients.get(symbol, set()).copy()
-        dead = set()
-        for ws in clients:
-            try:
-                await ws.send_json(data)
-            except Exception:
-                dead.add(ws)
-        for ws in dead:
-            self._clients.get(symbol, set()).discard(ws)
-
-    async def _ensure_subscribed(self, symbol: str):
-        """Asegura que el símbolo esté en la suscripción de Binance."""
-        if symbol.upper() in self._subscribed:
-            return
-        self._subscribed.add(symbol.upper())
-        if self._task is None or self._task.done():
-            self._task = asyncio.create_task(self._binance_loop())
-
-    async def _binance_loop(self):
-        """Loop principal de reconexión a Binance WebSocket."""
-        backoff = 1
-        while True:
-            if not self._subscribed:
-                await asyncio.sleep(5)
-                continue
-            try:
-                streams = "/".join(
-                    f"{s.lower()}@kline_1m" for s in self._subscribed
-                )
-                url = f"wss://stream.binance.com:9443/stream?streams={streams}"
-                logger.info(f"[ws] Conectando a Binance WS: {len(self._subscribed)} streams")
-
-                # Conexión WebSocket a Binance
-                import websockets
-                async with websockets.connect(url, ping_interval=20, ping_timeout=10) as ws:
-                    backoff = 1  # reset backoff al conectar exitosamente
-                    logger.info("[ws] Binance WS conectado")
-                    async for raw in ws:
-                        try:
-                            msg  = json.loads(raw)
-                            data = msg.get("data", {})
-                            if data.get("e") != "kline":
-                                continue
-                            k      = data["k"]
-                            symbol = k["s"]   # ej: BTCUSDT
-                            candle = {
-                                "type":   "tick",
-                                "symbol": symbol,
-                                "time":   k["t"] // 1000,
-                                "open":   float(k["o"]),
-                                "high":   float(k["h"]),
-                                "low":    float(k["l"]),
-                                "close":  float(k["c"]),
-                                "volume": float(k["v"]),
-                                "closed": k["x"],  # True = vela cerrada
-                            }
-                            await self.broadcast(symbol, candle)
-                        except Exception as e:
-                            logger.debug(f"[ws] Error procesando mensaje: {e}")
-
-            except Exception as e:
-                logger.warning(f"[ws] Binance WS error: {e} — reconectando en {backoff}s")
-                await asyncio.sleep(backoff)
-                backoff = min(backoff * 2, 60)  # backoff exponencial, máx 60s
-
-
-# Instancia global
-ws_manager = WsManager()
-
-
-@router.websocket("/ws/{coin_id}")
-async def chart_ws(websocket: WebSocket, coin_id: str, timeframe: str = "1m"):
-    """
-    WebSocket para actualizaciones en tiempo real.
-    El cliente se suscribe a una coin, recibe ticks de Binance.
-    """
-    pool = websocket.app.state.db_pool
-    async with pool.acquire() as conn:
-        ex_row = await conn.fetchrow(
-            "SELECT exchange, symbol FROM coin_exchanges WHERE coin_id=$1 AND exchange='binance'",
-            coin_id)
-
-    if not ex_row:
-        # Coin no disponible en Binance → polling fallback
-        await websocket.accept()
-        await websocket.send_json({"type": "fallback", "reason": "no_binance"})
-        await websocket.close()
-        return
-
-    symbol = ex_row["symbol"]
-    await ws_manager.connect_client(websocket, symbol)
-    try:
-        while True:
-            # Mantener conexión viva — el cliente puede enviar pings
-            try:
-                msg = await asyncio.wait_for(websocket.receive_text(), timeout=30)
-                if msg == "ping":
-                    await websocket.send_text("pong")
-            except asyncio.TimeoutError:
-                # Enviar heartbeat
-                await websocket.send_json({"type": "heartbeat"})
-    except WebSocketDisconnect:
-        pass
-    finally:
-        await ws_manager.disconnect_client(websocket, symbol)
-
+# ── (WebSocket de Binance eliminado) ──────────────────────────────────────────
+# El endpoint /ws/{coin_id} y su WsManager conectaban a Binance para ticks en
+# vivo. Quedaron obsoletos con la capa de precio unificado (price_stream +
+# candle_stream) y ningún cliente los usaba. Eliminados el 25/07/2026; con ellos
+# se fue la última consulta a coin_exchanges.
 
 # ── Indicadores ───────────────────────────────────────────────────────────────
 
