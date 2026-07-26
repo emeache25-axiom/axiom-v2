@@ -223,16 +223,31 @@ Fueron útiles para validar los adaptadores (de ahí salieron hallazgos reales,
 como que CoinEx no tiene canal kline). **Sugerencia:** mover a `tools/` o
 `scripts/validation/`. No borrar: documentan cómo se verificó cada API.
 
-### 7.2 Pantallas huérfanas ⚠️
+### 7.2 Componentes de régimen (NO son pantallas huérfanas) ✅
 
-- **`capital.js`** (180 líneas) — el script se carga en `index.html`, pero
-  **no está en `window.Screens`** ni tiene botón de navegación. Código muerto
-  desde la UI. El endpoint `/api/capital` (102 líneas) tampoco tiene consumidor.
-- **`market.js`** (598 líneas) — **sí** está en `window.Screens` como `market`,
-  pero **no hay botón** con `data-screen="market"`. Inalcanzable por navegación.
-  (La pantalla Mercado visible es `regime.js`.)
+**Corrección (26/07/2026):** un relevamiento anterior los marcó como "pantallas
+huérfanas" por no tener botón de navegación. Es un error: **no son pantallas,
+son componentes que `regime.js` compone.** Verificado — están vivos y en uso.
 
-Navegación real: `regime`, `watchlist`, `charts`, `news`, `bot`, `chat`.
+- **`market.js`** (598 líneas) — `MarketScreen`: la maquinaria de la sub-pestaña
+  "Mercado" dentro de la pantalla de régimen (vistas General/Categorías/Redes,
+  drill-downs, paginación). `regime.js:_loadMarket()` llama a
+  `MarketScreen.renderShell()` y `switchView()`. No tiene botón propio porque no
+  es una pantalla independiente: vive dentro de régimen.
+- **`capital.js`** (180 líneas) — `CapitalScreen`: renderiza la sugerencia de
+  asignación de capital. `regime.js:_renderCapital()` llama a
+  `CapitalScreen.render(data)` con datos de `/api/capital/suggestion`
+  (vía `API.getCapitalSuggestion()`). Cadena completa y funcional.
+- **`/api/capital`** (backend) — alimenta lo anterior. Consumidor real:
+  `api.js:43` → `fetch('/api/capital/suggestion')`.
+
+**Lección:** "sin botón de navegación" no implica "código muerto". Un componente
+puede no tener entrada en `window.Screens` y aun así ser usado por otra pantalla
+que lo compone. El nombre `...Screen` es engañoso (son views/componentes), pero
+renombrarlos es cosmético y arriesgado; se optó por documentar en vez de tocar.
+
+Navegación real (pantallas con botón): `regime`, `watchlist`, `charts`, `pairs`,
+`news`, `bot`, `chat`.
 
 ### 7.3 Typo en `charts-screen.js` ⚠️
 Línea 421: expone `NS.Screen` (singular). El resto del código usa `NS.Screens`.
@@ -317,8 +332,8 @@ revés. `data/` es hoja: solo lo usa `snapshot.py`.
 |---|---|---|---|
 | 1 | `ohlcv_sync` no funciona (2.392 llamadas/día) | 🔴 alta | medio |
 | 2 | `watchlist.js` con 1.668 líneas | 🟡 media | alto |
-| 3 | `market.js` inalcanzable (598 líneas) | 🟡 media | bajo (decidir) |
-| 4 | `capital.js` + `/api/capital` sin consumidor | 🟡 media | bajo (decidir) |
+| 3 | ~~`market.js` inalcanzable~~ → **es componente de régimen, en uso** | ✅ aclarado | — |
+| 4 | ~~`capital.js` + `/api/capital` sin consumidor~~ → **en uso por régimen** | ✅ aclarado | — |
 | 5 | 7 scripts de validación en la raíz | 🟢 baja | bajo |
 | 6 | `data_engine`/`backfill` duplican acceso | 🟢 baja | medio |
 | 7 | `WsManager` Binance vs `candle_stream` | 🟢 baja | bajo |
@@ -333,8 +348,9 @@ funcionalidad real es el #1, ya diagnosticado y con solución diseñada en
 
 ## 10. Decisiones que este mapa deja planteadas
 
-1. **`market.js` y `capital.js`**: ¿se recuperan (agregando navegación) o se
-   eliminan? Son 778 líneas de código escrito y no accesible.
+1. ~~**`market.js` y `capital.js`**: ¿se recuperan o se eliminan?~~ **RESUELTO
+   (26/07/2026):** no eran huérfanas — son componentes que `regime.js` usa. Ver
+   §7.2. No se toca el código; solo se corrigió esta documentación.
 2. **`watchlist.js`**: ¿se divide como `charts/`? Es el archivo con más riesgo
    de volverse inmanejable.
 3. **`scripts/` → histórico**: consolidar en `migrations/`.

@@ -1,3 +1,20 @@
+/**
+ * AXIOM v2 — MarketScreen  (COMPONENTE, no una pantalla)
+ * ────────────────────────────────────────────────────────────────────────────
+ * NO es una pantalla independiente ni tiene botón de navegación propio.
+ * Es la maquinaria de la sub-pestaña "Mercado" DENTRO de la pantalla de régimen.
+ *
+ * Lo usa regime.js:
+ *   _loadMarket() → MarketScreen.renderShell() + MarketScreen.switchView('general')
+ *
+ * Provee: vistas General / Categorías / Redes, drill-downs y paginación.
+ *
+ * El nombre "...Screen" es histórico y engañoso (es una view/componente). No
+ * está en window.Screens y eso es correcto: no se navega a él directamente.
+ * Un relevamiento lo marcó por error como "pantalla huérfana" el 20/07; es
+ * código VIVO y en uso. Ver AXIOM_mapa_codigo.md §7.2.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
 const MarketScreen = {
   activeView:   'general',
   loaded:       {general: false, categories: false, networks: false},

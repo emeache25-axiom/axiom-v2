@@ -1,3 +1,19 @@
+/**
+ * AXIOM v2 — CapitalScreen  (COMPONENTE, no una pantalla)
+ * ────────────────────────────────────────────────────────────────────────────
+ * NO es una pantalla independiente ni tiene botón de navegación propio.
+ * Renderiza la sugerencia de asignación de capital DENTRO de la pantalla de
+ * régimen.
+ *
+ * Lo usa regime.js:
+ *   _renderCapital() → CapitalScreen.render(data)
+ *   con data de API.getCapitalSuggestion() → GET /api/capital/suggestion
+ *
+ * El nombre "...Screen" es histórico y engañoso (es una view/componente).
+ * Un relevamiento lo marcó por error como "huérfano" el 20/07; es código VIVO
+ * y en uso. Ver AXIOM_mapa_codigo.md §7.2.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
 const CapitalScreen = {
   onEnter() {},
 
