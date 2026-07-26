@@ -74,16 +74,15 @@ punta. La tabla `pair_ohlcv` ya está creada (migración 004). Falta:
 
 Ordenados por cercanía a la brújula (¿ayuda a operar?), no por cuándo aparecieron.
 
-### 4.1 Datos y universo
-- **Cerrar la migración de datos** — ✅ HECHO (25/07/2026). Bot y screener
-  open→high migrados a `pair_ohlcv`; screener de volatilidad eliminado
-  (reemplazado por el de pares); `charts.py` resuelve exchange desde `pairs`
-  (par de mayor volumen); eliminados `ohlcv_sync.py`, `ohlcv_daily`,
-  `watchlist_old` y los jobs obsoletos. `ohlcv_daily` respaldada en dump.
-- **Pendiente único del frente de datos**: el WebSocket de Binance en
-  `charts.py` (~línea 299) todavía usa `coin_exchanges`. Por eso esa tabla NO
-  se eliminó. Es lo último que ata al modelo viejo. Ver §4.2 (emparentado con
-  el WsManager de Binance vs candle_stream).
+### 4.1 Datos y universo — ✅ FRENTE CERRADO (26/07/2026)
+- Bot y screener open→high migrados a `pair_ohlcv`; screener de volatilidad
+  eliminado (reemplazado por el de pares); `charts.py` resuelve exchange desde
+  `pairs` (par de mayor volumen).
+- Eliminados: `ohlcv_sync.py`, `ohlcv_daily`, `watchlist_old`, `coin_exchanges`,
+  el WebSocket de Binance muerto en `charts.py` (con su `WsManager`), y los jobs
+  obsoletos del scheduler. `ohlcv_daily` y `coin_exchanges` respaldadas en dumps.
+- **El modelo viejo desapareció por completo.** El sistema tiene un solo modelo
+  de datos: pares tradeables de MEXC/CoinEx con sus velas y métricas.
 
 ### 4.2 Arquitectura de presentación
 - **Componentes adaptables / responsivos**: cómo se comporta cada componente
