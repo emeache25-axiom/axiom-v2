@@ -12,9 +12,15 @@ El bucle:
   4. Se le devuelve el resultado y el modelo responde (o pide otra).
   5. Se retorna el texto final.
 
-Las herramientas son capacidades que YA existen — no se reimplementa nada:
-  - regimen_mercado  → Mercado.regimen_global()
-  - analizar_coin    → Coin.overview(metadata + regimen_relativo)
+Las herramientas NO se declaran acá: se descubren del REGISTRO DE CAPACIDADES
+(`backend/domain/registry.py`), donde cada capacidad declara su contrato junto a
+su propio código. Agregar una capacidad al dominio y que Kepler la conozca son
+el mismo acto — no hay lista que mantener sincronizada.
+
+Cada capacidad declara, además de su firma técnica, qué MIDE (hecho), qué
+INFIERE (lectura) y qué NO PUEDE SABER (límites). Eso viaja con la descripción
+de la herramienta Y con cada resultado, de modo que el modelo no pueda presentar
+una inferencia como si fuera un hecho medido.
 
 Proveedor: Google Gemini (nivel gratuito, sin tarjeta).
 Requiere GEMINI_API_KEY en el .env — se obtiene en aistudio.google.com/apikey
@@ -48,251 +54,85 @@ _TIMEOUT = 60.0
 _MAX_VUELTAS = 5      # tope de iteraciones del bucle de function calling
 
 
-# ── Declaración de las herramientas (lo que el modelo puede pedir) ────────────
+# ── Herramientas: se descubren del REGISTRO DE CAPACIDADES ────────────────────
+# Antes estaban cableadas acá a mano, lo que garantizaba desincronización: la
+# tool `buscar_coins` describía un modo de screener que ya se había eliminado.
+# Ahora el catálogo se proyecta desde el registro, donde cada capacidad declara
+# su contrato junto a su propio código. Agregar una capacidad y que Kepler la
+# conozca son el MISMO acto. Ver AXIOM_registro_capacidades.md.
 
-FUNCIONES = [
-    {
-        "name": "regimen_mercado",
-        "description": (
-            "Devuelve el régimen actual del mercado cripto calculado por AXIOM, "
-            "en tres temporalidades (largo, medio, corto plazo). Cada una trae el "
-            "régimen (ACUMULACION, ALCISTA, DISTRIBUCION, BAJISTA, LATERAL) y su "
-            "nivel de convicción (0-100). Es el clima general del mercado, medido "
-            "sobre Bitcoin como proxy. Usar cuando se pregunte por el estado del "
-            "mercado, el ciclo, o el contexto general."
-        ),
-        "parameters": {"type": "object", "properties": {}},
-    },
-    {
-        "name": "analizar_coin",
-        "description": (
-            "Analiza cómo se sitúa una criptomoneda concreta en el mercado actual. "
-            "Devuelve: metadata (precio, market cap, ranking, categoría), el contexto "
-            "global (régimen del mercado), la posición sectorial (cómo viene el sector "
-            "de esa coin y su ranking de fuerza entre todos los sectores) y la fuerza "
-            "relativa vs Bitcoin (si le gana o pierde a BTC, con lectura "
-            "lider/neutral/rezagada). Usar cuando se pregunte por una coin puntual."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "coin_id": {
-                    "type": "string",
-                    "description": (
-                        "El id de CoinGecko de la coin, en minusculas y con guiones. "
-                        "Ejemplos: 'bitcoin', 'ethereum', 'ontology', 'solana', "
-                        "'oasis-network', 'decentraland', 'dogecoin'. "
-                        "NO usar el simbolo (ONT, ETH) sino el id completo."
-                    ),
-                }
-            },
-            "required": ["coin_id"],
-        },
-    },
-    {
-        "name": "buscar_coins",
-        "description": (
-            "Busca criptomonedas en el universo de AXIOM (~1750 coins) segun filtros. "
-            "Tiene tres modos: "
-            "'basic' filtra por categoria, variacion de precio y capitalizacion (sirve "
-            "para 'coins de DeFi que subieron esta semana'). "
-            "'volatility' encuentra pares con VOLATILIDAD ESTRUCTURAL: coins cuyo rango "
-            "diario (high-low) supera un umbral en un alto porcentaje de las velas de los "
-            "ultimos 30 dias. Es el modo indicado para buscar pares que OSCILAN de forma "
-            "repetible, ideales para range trading o compra-venta en rangos chicos. "
-            "'open_high' encuentra coins con impulso repetido desde la apertura al maximo. "
-            "Devuelve la lista de coins que cumplen, con sus metricas."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "modo": {
-                    "type": "string",
-                    "enum": ["basic", "volatility", "open_high"],
-                    "description": "Modo de busqueda. Por defecto 'basic'.",
-                },
-                "supercat": {
-                    "type": "string",
-                    "description": (
-                        "Categoria a filtrar (opcional). Valores: bitcoin, "
-                        "smart_platforms, layer2, stablecoins, defi, rwa, exchange, ai, "
-                        "memes, gaming, privacy, infrastructure, desoc, staking, "
-                        "payments, political. Vacio = todas."
-                    ),
-                },
-                "min_mcap": {
-                    "type": "number",
-                    "description": "Capitalizacion minima en USD (opcional).",
-                },
-                "max_mcap": {
-                    "type": "number",
-                    "description": (
-                        "Capitalizacion maxima en USD (opcional). Para baja capitalizacion "
-                        "usar por ejemplo 100000000 (100 millones)."
-                    ),
-                },
-                "min_change": {
-                    "type": "number",
-                    "description": "Variacion minima en 24h, en % (opcional).",
-                },
-                "max_change": {
-                    "type": "number",
-                    "description": "Variacion maxima en 24h, en % (opcional).",
-                },
-                "min_range": {
-                    "type": "number",
-                    "description": (
-                        "Solo modos volatility/open_high: rango minimo por vela en % "
-                        "(ej. 3 = velas que se mueven al menos 3%). Por defecto 3."
-                    ),
-                },
-                "min_pct_ok": {
-                    "type": "number",
-                    "description": (
-                        "Solo modos volatility/open_high: porcentaje minimo de velas que "
-                        "deben cumplir el rango (ej. 80 = el 80% de los dias). Por defecto 80."
-                    ),
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Cantidad maxima de resultados (por defecto 20, maximo 50).",
-                },
-            },
-        },
-    },
-    {
-        "name": "coins_sugeridas",
-        "description": (
-            "Devuelve las coins que AXIOM sugiere HOY segun el regimen de mercado "
-            "vigente, en tres canastas: largo plazo (12-36 meses, DCA en BTC/ETH/SOL), "
-            "medio plazo (2-12 semanas, altcoins con catalizador) y corto plazo (horas a "
-            "dias, alta volatilidad estructural para range trading). Incluye el contexto "
-            "del regimen, nivel de riesgo y notas operativas por temporalidad. Usar cuando "
-            "se pregunte que comprar, que mirar, o que sugiere el sistema."
-        ),
-        "parameters": {"type": "object", "properties": {}},
-    },
-    {
-        "name": "mi_watchlist",
-        "description": (
-            "Devuelve los pares que Migue tiene en su lista de seguimiento, con su "
-            "exchange, simbolo del par, si es operable y si tiene bot activo. Usar cuando "
-            "pregunte por 'mis pares', 'mi watchlist', 'lo que sigo'."
-        ),
-        "parameters": {"type": "object", "properties": {}},
-    },
-]
+from backend.domain.registry import (
+    registro, CapacidadDesconocida, ArgumentosInvalidos,
+)
+# Importar los módulos que declaran capacidades para que se registren al
+# levantar la app (el decorador registra en tiempo de import).
+import backend.domain.sistema  # noqa: F401
+
+
+def _funciones() -> list[dict]:
+    """
+    Catálogo vigente en formato function calling. Se consulta en cada request:
+    si se agregó una capacidad, Kepler la ve sin reiniciar nada más que la app.
+
+    Cada descripción incluye el bloque MIDE / INFIERE / NO PUEDE SABER, para que
+    el modelo tenga la distinción entre hecho e inferencia ANTES de elegir la
+    herramienta, no solo al recibir el resultado.
+    """
+    return registro.a_function_calling()
+
 
 SYSTEM_PROMPT = """Sos Kepler, el asistente analitico de AXIOM, el cockpit de trading cripto de Migue.
 
-Tenes acceso a las herramientas del propio sistema: el regimen de mercado que AXIOM calcula y el analisis situacional de cualquier coin. Usalas para responder con datos reales del sistema, no con conocimiento general. Si la pregunta requiere datos del mercado, llama a la herramienta correspondiente antes de responder.
+Tenes acceso a las capacidades del propio sistema como herramientas. Usalas para responder con datos reales de AXIOM, no con conocimiento general. Si la pregunta requiere datos de mercado, llama a la herramienta correspondiente antes de responder.
 
-Pautas:
-- Responde en espanol rioplatense, directo y sin rodeos.
-- Interpreta los datos, no los recites. Migue quiere lectura, no un volcado de JSON.
-- Si un dato falta o es ambiguo, decilo en vez de rellenar.
-- Se conciso: densidad antes que extension.
-- Cuando menciones numeros, dales contexto (que significa esa conviccion, si ese cambio es grande o chico).
+════ RIGOR: lo que distingue a AXIOM ════
+Cada herramienta declara tres cosas, y cada resultado vuelve acompañado de ellas:
+  MIDE     — el hecho verificable: paso, es dato duro.
+  INFIERE  — la lectura o interpretacion: NO es un hecho.
+  NO SABE  — los limites: lo que esa capacidad no puede afirmar.
+
+Reglas que no se negocian:
+1. NUNCA presentes una inferencia con la misma certeza que una medicion. Si el
+   dato es medido, afirmalo. Si es una lectura, marcala como tal ("sugiere",
+   "el perfil indica", "es candidato a").
+2. Si el resultado trae limites relevantes en NO SABE, decilos. Callar lo que no
+   se sabe es una forma de mentir.
+3. NO des consejos de compra o venta. AXIOM analiza; Migue decide. En vez de
+   "compra X", decir "X muestra tal cosa medida, lo que sugiere tal perfil, con
+   la salvedad de que...".
+4. Si un dato falta o es ambiguo, decilo en vez de rellenar. "No hay velas
+   suficientes para calcular esto" es una respuesta completa y correcta.
+5. Cuando cites un numero, decí de donde sale y sobre que ventana se midio si
+   viene en el resultado.
+
+════ ESTILO ════
+- Espanol rioplatense, directo y sin rodeos.
+- Interpreta los datos, no los recites: lectura, no volcado de JSON.
+- Conciso: densidad antes que extension.
+- Da contexto a los numeros (que significa esa conviccion, si ese cambio es
+  grande o chico para ese activo).
 """
 
 
-# ── Ejecución de las funciones contra la capa de dominio ──────────────────────
-
-class _Req:
-    """Shim mínimo: el endpoint del screener espera un Request de FastAPI y solo
-    usa `request.app.state.db_pool`. Se lo damos sin montar un request real."""
-    def __init__(self, pool):
-        self.app = type("A", (), {"state": type("S", (), {"db_pool": pool})()})()
-
+# ── Ejecución: despacha contra el registro ────────────────────────────────────
 
 async def _ejecutar_funcion(domain, pool, nombre: str, args: dict) -> dict:
-    """Traduce un pedido del modelo a una llamada a la capa de dominio."""
-    if nombre == "regimen_mercado":
-        return await domain.mercado().regimen_global()
+    """
+    Ejecuta una capacidad por nombre. Ya no hay cadena de `if`: el registro sabe
+    construir la entidad y despachar.
 
-    if nombre == "analizar_coin":
-        coin_id = (args or {}).get("coin_id", "").strip().lower()
-        if not coin_id:
-            return {"error": "falta coin_id"}
-        coin = domain.coin(coin_id)
-        data = await coin.overview(["metadata_mercado", "regimen_relativo"])
-        if not data.get("metadata_mercado"):
-            return {"error": f"no encuentro la coin '{coin_id}' en la base de AXIOM"}
-        return data
-
-    if nombre == "buscar_coins":
-        from backend.api.watchlist import screener as _screener
-        a = args or {}
-        modo = a.get("modo") or "basic"
-        limit = min(int(a.get("limit") or 20), 50)
-        # sort_by por defecto según el modo
-        sort_by = {"volatility": "avg_range_pct",
-                   "open_high":  "avg_oh_pct"}.get(modo, "rank")
-        sort_dir = "asc" if modo == "basic" else "desc"
-        return await _screener(
-            request=_Req(pool),
-            type=modo,
-            supercat=a.get("supercat") or "",
-            min_change=float(a.get("min_change", -999)),
-            max_change=float(a.get("max_change", 999)),
-            min_mcap=float(a.get("min_mcap", 0)),
-            max_mcap=float(a.get("max_mcap", 1e15)),
-            sort_by=sort_by,
-            sort_dir=sort_dir,
-            min_range=float(a.get("min_range", 3.0)),
-            min_pct_ok=float(a.get("min_pct_ok", 80.0)),
-            min_candles=20,
-            limit=limit,
-        )
-
-    if nombre == "coins_sugeridas":
-        from backend.services.selection_service import get_asset_selection
-        return await get_asset_selection(pool)
-
-    if nombre == "mi_watchlist":
-        # Usa la capacidad de dominio (maneja la columna `grupo` opcional y
-        # devuelve operable/bot_enabled). Se enriquece con datos de mercado.
-        pares = await domain.watchlist().pares_seguidos()
-        if not pares:
-            return {"total": 0, "pares": []}
-        ids = [p["coin_id"] for p in pares if p.get("coin_id")]
-        mercado = {}
-        if ids:
-            async with pool.acquire() as conn:
-                rows = await conn.fetch("""
-                    SELECT id, symbol, name, price, change_24h, change_7d,
-                           market_cap, rank, supercat
-                    FROM coins WHERE id = ANY($1::text[])
-                """, ids)
-            mercado = {r["id"]: r for r in rows}
-
-        def _f(v):
-            return float(v) if v is not None else None
-
-        salida = []
-        for p in pares:
-            m = mercado.get(p.get("coin_id"))
-            salida.append({
-                "coin_id":     p.get("coin_id"),
-                "symbol":      (m["symbol"].upper() if m and m["symbol"]
-                                else (p.get("symbol") or "").upper()),
-                "name":        m["name"] if m else None,
-                "par":         p.get("pair_symbol"),
-                "exchange":    p.get("exchange"),
-                "quote":       p.get("quote"),
-                "operable":    p.get("operable"),
-                "bot_activo":  p.get("bot_enabled"),
-                "grupo":       p.get("grupo"),
-                "precio_usd":  _f(m["price"]) if m else None,
-                "change_24h":  _f(m["change_24h"]) if m else None,
-                "change_7d":   _f(m["change_7d"]) if m else None,
-                "market_cap":  _f(m["market_cap"]) if m else None,
-                "rank":        m["rank"] if m else None,
-                "sector":      m["supercat"] if m else None,
-            })
-        return {"total": len(salida), "pares": salida}
-
-    return {"error": f"herramienta desconocida: {nombre}"}
+    El resultado vuelve con su declaracion epistemica adjunta, de modo que el
+    modelo recibe SIEMPRE, junto a los numeros, que se midio y que se infiere.
+    """
+    try:
+        return await registro.ejecutar(domain, pool, nombre, args or {})
+    except CapacidadDesconocida as e:
+        return {"error": str(e)}
+    except ArgumentosInvalidos as e:
+        return {"error": str(e)}
+    except Exception as e:
+        logger.exception("[chat] error ejecutando capacidad %s", nombre)
+        return {"error": f"la capacidad '{nombre}' fallo: {e}"}
 
 
 # ── Endpoint ──────────────────────────────────────────────────────────────────
@@ -361,7 +201,8 @@ async def chat(request: Request, body: ChatRequest):
 
     payload_base = {
         "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
-        "tools": [{"functionDeclarations": FUNCIONES}],
+        # Catálogo vigente del registro, no una lista fija.
+        "tools": [{"functionDeclarations": _funciones()}],
         "generationConfig": {"temperature": 0.7, "maxOutputTokens": 2000},
     }
 
@@ -420,8 +261,20 @@ async def chat(request: Request, body: ChatRequest):
 @router.get("/tools")
 async def listar_tools():
     """Qué herramientas tiene disponibles el chat (para inspección)."""
+    caps = registro.listar()
     return {
         "modelo": _MODEL,
         "modelos_respaldo": _MODELOS_RESPALDO,
-        "tools": [{"name": f["name"], "description": f["description"]} for f in FUNCIONES],
+        "origen": "registro de capacidades",
+        "total": len(caps),
+        "tools": [
+            {
+                "name": c["nombre"],
+                "description": c["descripcion"],
+                "categoria": c["categoria"],
+                "costo": c["costo"],
+                "epistemico": c["epistemico"],
+            }
+            for c in caps
+        ],
     }

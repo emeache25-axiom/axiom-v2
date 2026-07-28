@@ -181,14 +181,16 @@ class Coin(Composable):
         categoria="coin",
         costo="medio",
         devuelve=(
-            "contexto_global (régimen del mercado), posicion_sectorial "
-            "(variación del sector y su ranking de fuerza) y fuerza_vs_btc "
-            "(cambio del ratio a 24h y 7d, con lectura y origen del cálculo)"
+            "metadata_mercado (símbolo, nombre, rank, capitalización, volumen, "
+            "sector) y regimen_relativo (contexto_global del mercado, "
+            "posicion_sectorial con el ranking de fuerza del sector, y "
+            "fuerza_vs_btc con el cambio del ratio a 24h y 7d)"
         ),
         mide=(
-            "el régimen global vigente; la variación promedio a 24h y 7d del "
-            "sector de la coin y su posición entre todos los sectores; el "
-            "cambio porcentual del ratio COIN/BTC a 24h y 7d"
+            "precio, capitalización, volumen, ranking y sector de la coin; el "
+            "régimen global vigente; la variación promedio a 24h y 7d del "
+            "sector y su posición entre todos los sectores; el cambio "
+            "porcentual del ratio COIN/BTC a 24h y 7d"
         ),
         infiere=(
             "tres lecturas interpretativas: el sector se etiqueta "
@@ -205,8 +207,8 @@ class Coin(Composable):
             "sabe por qué se mueve: no hay lectura de causas ni de noticias"
         ),
         fuente=(
-            "tabla `snapshots` (job horario), tabla `coins` para el sector "
-            "(sync cada 6 h), y velas diarias del par vía adaptadores de "
+            "tabla `coins` (sync desde CoinGecko cada 6 h), tabla `snapshots` "
+            "(job horario), y velas diarias del par vía adaptadores de "
             "exchange (MEXC/CoinEx)"
         ),
         metodo=(
@@ -228,6 +230,20 @@ class Coin(Composable):
             ),
         ],
     )
+    async def analisis_situacional(self) -> dict:
+        """
+        Composición: metadata de mercado + régimen relativo, en paralelo.
+
+        Es la capacidad que se expone al registro. `regimen_relativo` y
+        `metadata_mercado` siguen siendo atómicas y componibles por dentro; esta
+        las junta porque un consumidor que pregunta "cómo está esta coin"
+        necesita las dos, y pedirlas por separado serían dos viajes.
+        """
+        datos = await self.overview(["metadata_mercado", "regimen_relativo"])
+        if not datos.get("metadata_mercado"):
+            return {"error": f"no encuentro la coin '{self.id}' en el catálogo de AXIOM"}
+        return datos
+
     async def regimen_relativo(self) -> dict:
         """
         Cómo se para la coin en el clima de mercado. Combina:

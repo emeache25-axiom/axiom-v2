@@ -53,29 +53,36 @@ class Watchlist:
         nombre="mi_watchlist",
         descripcion=(
             "Los pares que el usuario tiene en seguimiento, con su exchange, "
-            "símbolo, si es operable y si tiene bot activo. Usar cuando "
-            "pregunte por 'mis pares', 'mi watchlist' o 'lo que sigo'."
+            "símbolo, si es operable, si tiene bot activo, y los datos de "
+            "mercado de cada coin (precio, variaciones, capitalización). Usar "
+            "cuando pregunte por 'mis pares', 'mi watchlist' o 'lo que sigo'."
         ),
         entidad="watchlist",
         categoria="watchlist",
         costo="barato",
         devuelve=(
-            "lista de pares con coin_id, símbolo base, quote, exchange, "
-            "pair_symbol, operable, bot_enabled, grupo y orden"
+            "lista de pares con coin_id, símbolo, nombre, quote, exchange, "
+            "pair_symbol, operable, bot_enabled, grupo, orden, y precio, "
+            "change_24h, change_7d, market_cap y rank de la coin"
         ),
         mide=(
-            "las filas de la tabla watchlist: los pares que el usuario cargó "
-            "manualmente, tal como los guardó"
+            "las filas de la tabla watchlist —los pares que el usuario cargó "
+            "manualmente, tal como los guardó— cruzadas con el precio y la "
+            "capitalización vigentes de la tabla coins"
         ),
         infiere="nada",
         no_sabe=(
             "si esos pares siguen listados y operables en su exchange: la "
             "watchlist guarda lo que el usuario cargó y no se revalida contra "
-            "el catálogo de pares. Un par deslistado seguiría apareciendo. "
-            "Tampoco trae precio ni métricas: solo la composición de la lista"
+            "el catálogo de pares, así que un par deslistado seguiría "
+            "apareciendo. El precio es el agregado en USD de la coin (sync cada "
+            "6 h), no el precio del par en su exchange ni en tiempo real"
         ),
-        fuente="tabla `watchlist`, escrita a mano por el usuario desde la UI",
-        metodo="lectura directa, sin cálculo",
+        fuente=(
+            "tabla `watchlist` (alta manual del usuario) cruzada con `coins` "
+            "(sync desde CoinGecko cada 6 h)"
+        ),
+        metodo="lectura directa con LEFT JOIN por coin_id; sin cálculo",
         parametros=[
             Param(
                 nombre="grupo",
@@ -87,25 +94,45 @@ class Watchlist:
         ],
     )
     async def pares_seguidos(self, grupo: str | None = None) -> list:
-        """Pares de un grupo (o todos). Cada fila se puede materializar como Par."""
-        base = """SELECT id, coin_id, base AS symbol, quote, exchange,
-                         pair_symbol, operable, bot_enabled, position{grupo_col}
-                  FROM watchlist"""
-        if await self._grupo_existe():
-            base = base.format(grupo_col=", COALESCE(grupo,'general') AS grupo")
-            if grupo:
-                base += " WHERE COALESCE(grupo,'general')=$1"
-                order = " ORDER BY position"
-                async with self._pool.acquire() as conn:
-                    rows = await conn.fetch(base + order, grupo)
+        """
+        Pares de un grupo (o todos), enriquecidos con datos de mercado.
+        Cada fila se puede materializar como Par.
+
+        El LEFT JOIN con `coins` trae precio y capitalización en la misma
+        consulta: antes esto se hacía con una segunda query desde chat.py, lo
+        que duplicaba lógica en el consumidor.
+        """
+        tiene_grupo = await self._grupo_existe()
+        col_grupo = ", COALESCE(w.grupo,'general') AS grupo" if tiene_grupo else ""
+
+        sql = f"""
+            SELECT w.id, w.coin_id, w.base AS symbol, w.quote, w.exchange,
+                   w.pair_symbol, w.operable, w.bot_enabled, w.position{col_grupo},
+                   c.name, c.price, c.change_24h, c.change_7d,
+                   c.market_cap, c.rank, c.supercat, c.image
+            FROM watchlist w
+            LEFT JOIN coins c ON c.id = w.coin_id
+        """
+        async with self._pool.acquire() as conn:
+            if tiene_grupo and grupo:
+                rows = await conn.fetch(
+                    sql + " WHERE COALESCE(w.grupo,'general')=$1 ORDER BY w.position",
+                    grupo)
             else:
-                async with self._pool.acquire() as conn:
-                    rows = await conn.fetch(base + " ORDER BY position")
-        else:
-            base = base.format(grupo_col="")
-            async with self._pool.acquire() as conn:
-                rows = await conn.fetch(base + " ORDER BY position")
-        return [dict(r) for r in rows]
+                rows = await conn.fetch(sql + " ORDER BY w.position")
+
+        def _f(v):
+            return float(v) if v is not None else None
+
+        salida = []
+        for r in rows:
+            d = dict(r)
+            for campo in ("price", "change_24h", "change_7d", "market_cap"):
+                d[campo] = _f(d.get(campo))
+            if d.get("symbol"):
+                d["symbol"] = d["symbol"].upper()
+            salida.append(d)
+        return salida
 
     async def _contar_total(self) -> int:
         async with self._pool.acquire() as conn:
