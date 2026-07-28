@@ -112,6 +112,52 @@ class Coin(Composable):
 
     # ══ CAPACIDADES STUB (se completan en pasos siguientes) ═══════════════════
 
+    @capacidad(
+        nombre="info_proyecto",
+        descripcion=(
+            "La ficha del proyecto detrás de una coin: qué es, descripción, "
+            "supply (circulante, total, máximo), máximo y mínimo históricos con "
+            "sus fechas, fecha de génesis, y links oficiales (web, whitepaper, "
+            "github, explorador). Usar cuando se pregunte QUÉ ES una coin, de "
+            "qué se trata, o por sus datos fundamentales."
+        ),
+        entidad="coin",
+        categoria="coin",
+        costo="medio",
+        devuelve=(
+            "descripción, supply circulante/total/máximo, ATH y ATL con fechas "
+            "y variación desde ellos, génesis, algoritmo, país, categorías y links"
+        ),
+        mide=(
+            "los datos de ficha que publica CoinGecko para esa coin, guardados "
+            "en caché local con vigencia de 7 días"
+        ),
+        infiere="nada — es la ficha tal como la publica la fuente",
+        no_sabe=(
+            "si la descripción es veraz o está actualizada: la escribe el "
+            "propio proyecto y CoinGecko la reproduce, no la audita. El supply "
+            "circulante es una estimación del agregador, no una lectura on-chain. "
+            "Y la copia local puede tener hasta 7 días: si el proyecto cambió "
+            "algo recientemente, puede no estar reflejado"
+        ),
+        fuente=(
+            "CoinGecko /coins/{id}, cacheado en la tabla `coin_info` con TTL de "
+            "7 días; si CoinGecko falla, devuelve la copia guardada"
+        ),
+        metodo="lectura directa de la ficha, sin cálculo",
+        parametros=[
+            Param(
+                nombre="coin_id",
+                tipo=str,
+                descripcion=(
+                    "id de CoinGecko de la coin, en minúsculas y con guiones. "
+                    "NO el símbolo (usar 'ontology', no 'ONT')"
+                ),
+                requerido=True,
+                ejemplos=("bitcoin", "ethereum", "ontology"),
+            ),
+        ],
+    )
     async def info_proyecto(self) -> dict:
         """
         Información de proyecto (descripción, supply, ATH/ATL, links, categorías).
@@ -122,6 +168,54 @@ class Coin(Composable):
         data = await coin_info_service.get(self._pool, self.id)
         return data or {}
 
+    @capacidad(
+        nombre="noticias_coin",
+        descripcion=(
+            "Titulares recientes que mencionan a una coin concreta. Usar cuando "
+            "se pregunte qué se dice de una moneda puntual o si hay novedades "
+            "sobre ella."
+        ),
+        entidad="coin",
+        categoria="coin",
+        costo="medio",
+        devuelve=(
+            "lista de artículos que mencionan la coin, más los términos que se "
+            "usaron para el match"
+        ),
+        mide=(
+            "los artículos del feed RSS general cuyo título o resumen contiene "
+            "el símbolo o el nombre de la coin"
+        ),
+        infiere=(
+            "que el artículo trata sobre esa coin. El filtro es una búsqueda de "
+            "texto simple, no un análisis de contenido"
+        ),
+        no_sabe=(
+            "si el artículo realmente habla de la coin: un símbolo corto puede "
+            "aparecer dentro de otras palabras o referirse a otra cosa, y un "
+            "nombre común genera falsos positivos. Tampoco detecta menciones "
+            "que no usen ni el símbolo ni el nombre exacto, así que puede "
+            "omitir noticias relevantes. No hay análisis de sentimiento ni "
+            "verificación de las fuentes"
+        ),
+        fuente="feeds RSS de medios cripto (el mismo feed global de Mercado)",
+        metodo=(
+            "coincidencia de texto: se busca el símbolo y el nombre de la coin "
+            "en título y resumen de cada artículo"
+        ),
+        parametros=[
+            Param(
+                nombre="coin_id",
+                tipo=str,
+                descripcion=(
+                    "id de CoinGecko de la coin, en minúsculas y con guiones. "
+                    "NO el símbolo (usar 'ontology', no 'ONT')"
+                ),
+                requerido=True,
+                ejemplos=("bitcoin", "ethereum", "ontology"),
+            ),
+        ],
+    )
     async def noticias(self) -> dict:
         """
         Noticias de la coin: filtra el feed global de Mercado por símbolo+nombre.
@@ -154,6 +248,48 @@ class Coin(Composable):
         filtrados = [a for a in articulos if _matches(a)]
         return {"articulos": filtrados, "match_terms": sorted(terminos)}
 
+    @capacidad(
+        nombre="pares_de_coin",
+        descripcion=(
+            "En qué pares se puede operar una coin: exchange, moneda de "
+            "cotización y símbolo exacto del par. Usar cuando se pregunte dónde "
+            "comprar o vender una coin, o contra qué se puede operar."
+        ),
+        entidad="coin",
+        categoria="coin",
+        costo="medio",
+        devuelve=(
+            "lista de pares con exchange, base, quote, pair_symbol y si es operable"
+        ),
+        mide=(
+            "los pares que MEXC y CoinEx listan para el símbolo de esa coin, "
+            "consultados en el momento del pedido"
+        ),
+        infiere=(
+            "que el par corresponde a esta coin: el cruce se hace por símbolo, "
+            "y los símbolos pueden coincidir entre proyectos distintos"
+        ),
+        no_sabe=(
+            "si hay liquidez suficiente para operar ese par: dice que existe, "
+            "no cuánto se mueve — para eso está buscar_pares, que trae volumen "
+            "y spread. Tampoco cubre exchanges fuera de MEXC y CoinEx, así que "
+            "una coin puede ser operable en otro lado y no aparecer acá"
+        ),
+        fuente="APIs de mercados de MEXC y CoinEx, consultadas en vivo",
+        metodo="búsqueda del símbolo base en el catálogo de pares de cada exchange",
+        parametros=[
+            Param(
+                nombre="coin_id",
+                tipo=str,
+                descripcion=(
+                    "id de CoinGecko de la coin, en minúsculas y con guiones. "
+                    "NO el símbolo (usar 'ontology', no 'ONT')"
+                ),
+                requerido=True,
+                ejemplos=("bitcoin", "ethereum", "ontology"),
+            ),
+        ],
+    )
     async def pares(self) -> list:
         """
         Pares operables de la coin, descubiertos en MEXC y CoinEx.

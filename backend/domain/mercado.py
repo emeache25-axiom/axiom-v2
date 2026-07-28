@@ -18,7 +18,7 @@ Estado en este esqueleto (paso 1):
 from __future__ import annotations
 
 from backend.domain.base import Composable
-from backend.domain.registry import capacidad
+from backend.domain.registry import capacidad, Param
 
 
 class Mercado(Composable):
@@ -96,6 +96,37 @@ class Mercado(Composable):
             "created_at": d.get("created_at").isoformat() if d.get("created_at") else None,
         }
 
+    @capacidad(
+        nombre="noticias_mercado",
+        descripcion=(
+            "Titulares recientes del mercado cripto desde fuentes RSS. Usar "
+            "cuando se pregunte qué está pasando, qué se dice, o por novedades "
+            "del sector en general (no de una coin puntual)."
+        ),
+        entidad="mercado",
+        categoria="mercado",
+        costo="medio",
+        devuelve="lista de artículos con título, resumen, fuente, link y fecha",
+        mide=(
+            "los artículos publicados en los feeds RSS configurados, tal como "
+            "los entrega cada fuente"
+        ),
+        infiere="nada — no hay clasificación ni análisis de los artículos",
+        no_sabe=(
+            "si una noticia es relevante, veraz o ya está descontada en el "
+            "precio: no hay verificación de fuentes, ni análisis de sentimiento, "
+            "ni relación establecida entre la noticia y el movimiento de ningún "
+            "activo. Tampoco cubre todo lo publicado: solo los feeds "
+            "configurados, que pueden omitir información importante"
+        ),
+        fuente="feeds RSS de medios cripto, consultados en el momento del pedido",
+        metodo="lectura directa del RSS, sin filtrado ni ranking",
+        parametros=[
+            Param("fuente", str,
+                  "Limitar a una fuente concreta. Si se omite, trae todas.",
+                  requerido=False),
+        ],
+    )
     async def feed_noticias(self, fuente: str | None = None) -> dict:
         """Noticias globales (RSS). Fuente: news_service.
         get_news devuelve {'articles': [...], 'total': ...}; se normaliza a
@@ -123,6 +154,47 @@ class Mercado(Composable):
             return "sector_debil"
         return "sector_neutral"
 
+    @capacidad(
+        nombre="mapa_sectores",
+        descripcion=(
+            "El mapa del mercado por sectores: cada supercategoría (defi, ai, "
+            "memes, layer2, gaming, privacy, etc.) con su capitalización total, "
+            "peso relativo, variación a 24h y 7d, y su posición en el ranking "
+            "de fuerza. Usar para preguntas sobre qué sectores están fuertes o "
+            "débiles, o cómo se reparte el mercado."
+        ),
+        entidad="mercado",
+        categoria="mercado",
+        costo="barato",
+        devuelve=(
+            "lista de supercategorías ordenadas por fuerza, cada una con "
+            "market_cap, peso_pct, change_24h, change_7d, cantidad de coins, "
+            "lectura (fuerte/neutral/débil) y fuerza_rank"
+        ),
+        mide=(
+            "por cada supercategoría: la suma de capitalizaciones, el promedio "
+            "SIMPLE de las variaciones a 24h y 7d de sus coins, y la cantidad "
+            "de coins que la componen"
+        ),
+        infiere=(
+            "dos lecturas: la etiqueta sector_fuerte/neutral/débil según un "
+            "umbral de ±3% en 7 días, y el ranking de fuerza que ordena los "
+            "sectores por esa variación. Ambos son criterios elegidos"
+        ),
+        no_sabe=(
+            "si la fuerza sectorial se sostendrá. El umbral de ±3% es una "
+            "convención calibrable, no una constante. Y algo importante: el "
+            "promedio de variación es SIMPLE, no ponderado por capitalización, "
+            "así que una coin chica pesa igual que una grande dentro del "
+            "sector — un sector puede figurar fuerte por el movimiento de "
+            "varias micro-caps aunque sus coins grandes estén planas"
+        ),
+        fuente="tabla `coins` (sync desde CoinGecko cada 6 h)",
+        metodo=(
+            "agregación SQL por supercategoría: SUM de market_cap y AVG de las "
+            "variaciones; ordenado por variación a 7 días con desempate por 24h"
+        ),
+    )
     async def mapa(self) -> dict:
         """
         Categorías agregadas por supercategoría, CON ranking de fuerza.
@@ -209,6 +281,42 @@ class Mercado(Composable):
             "lectura":           "sector_neutral",
         }
 
+    @capacidad(
+        nombre="top_coins",
+        descripcion=(
+            "Las coins que encabezan el mercado según un criterio: "
+            "capitalización, volumen operado en 24h, o variación de precio a "
+            "24h o 7 días. Usar para preguntas del tipo 'las más grandes', "
+            "'las que más subieron', 'las de más volumen'."
+        ),
+        entidad="mercado",
+        categoria="mercado",
+        costo="barato",
+        devuelve=(
+            "lista ordenada con posición, coin_id, símbolo, nombre, ranking "
+            "global, el valor del criterio pedido y la variación a 24h"
+        ),
+        mide=(
+            "el valor de la columna pedida (capitalización, volumen 24h, "
+            "variación 24h o 7d) de cada coin, tal como está en el catálogo"
+        ),
+        infiere="nada — es un ordenamiento sobre un dato ya medido",
+        no_sabe=(
+            "por qué una coin está donde está; no hay lectura de causas. "
+            "Los valores son del último sync (hasta 6 horas de antigüedad), "
+            "así que en un mercado moviéndose rápido pueden estar desfasados. "
+            "Encabezar un ranking no dice nada sobre el comportamiento futuro"
+        ),
+        fuente="tabla `coins` (sync desde CoinGecko cada 6 h)",
+        metodo="ORDER BY sobre la columna del criterio, descendente",
+        parametros=[
+            Param("criterio", str,
+                  "Qué se ordena. Por defecto capitalización.",
+                  opciones=("market_cap", "volume_24h", "change_24h", "change_7d"),
+                  default="market_cap"),
+            Param("n", int, "Cuántas devolver (1 a 100).", default=10),
+        ],
+    )
     async def ranking(self, criterio: str = "market_cap", n: int = 10) -> dict:
         """Top N coins por criterio. Fuente: coins (PG)."""
         columnas = {

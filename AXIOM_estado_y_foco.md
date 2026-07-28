@@ -100,11 +100,22 @@ Ordenados por cercanía a la brújula (¿ayuda a operar?), no por cuándo aparec
   debería declarar tanto qué datos consume como cómo se adapta al espacio.
 
 ### 4.3 IA y automatización
-- **Más tools del chat**: mapa_sectores, top_coins, noticias_coin, info_proyecto,
-  velas_par, buscar por volatilidad. Capacidades ya existen; es declararlas.
-- **MCP**: exponer AXIOM a asistentes externos (Claude Desktop) vía servidor MCP.
-  Conclusión previa: tool use directo para lo propio, MCP para terceros. La capa
-  de dominio ya es la precondición. **Explícitamente pospuesto** hasta cerrar v2.
+- **Registro de capacidades** — ✅ NÚCLEO HECHO (27-28/07/2026). Decorador
+  `@capacidad` con validación estricta al arrancar; bloque epistémico
+  obligatorio (mide/infiere/no_sabe/fuente/método); despacho central;
+  proyecciones a function-calling y MCP. Ver `AXIOM_registro_capacidades.md`.
+- **Kepler conectado al registro** — ✅ HECHO (28/07/2026). Ya no tiene tools
+  cableadas: las descubre del registro. Validado — dedujo los filtros de
+  `buscar_pares` desde su descripción, separó hecho de inferencia y advirtió
+  sobre liquidez sin que se lo pidieran. **Agregar una capacidad al dominio la
+  hace aparecer en Kepler sin tocar el chat.**
+- **Migrar el resto de capacidades al registro** (tramo 5): quedan las de Coin
+  (precio_ref, info_proyecto, noticias, pares, alertas), Mercado (mapa, sector,
+  ranking, feed_noticias) y Par (velas_hist, order_book, etc.). Cada una que se
+  migre aparece sola en Kepler.
+- **Servidor MCP** (tramo 6, opcional): envoltura fina sobre el registro; la
+  proyección `a_mcp()` ya existe. Solo tiene sentido si se quiere operar AXIOM
+  desde un cliente externo (Claude Desktop, otra app).
 
 ### 4.4 Deuda menor
 - Migración columna `grupo` en `watchlist` (listas nombradas).
