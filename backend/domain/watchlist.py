@@ -16,6 +16,8 @@ No incluye screener/sugeridas (eso es de Mercado).
 """
 from __future__ import annotations
 
+from backend.domain.registry import capacidad, Param
+
 
 class Watchlist:
     def __init__(self, pool):
@@ -47,6 +49,43 @@ class Watchlist:
             )
         return [dict(r) for r in rows]
 
+    @capacidad(
+        nombre="mi_watchlist",
+        descripcion=(
+            "Los pares que el usuario tiene en seguimiento, con su exchange, "
+            "símbolo, si es operable y si tiene bot activo. Usar cuando "
+            "pregunte por 'mis pares', 'mi watchlist' o 'lo que sigo'."
+        ),
+        entidad="watchlist",
+        categoria="watchlist",
+        costo="barato",
+        devuelve=(
+            "lista de pares con coin_id, símbolo base, quote, exchange, "
+            "pair_symbol, operable, bot_enabled, grupo y orden"
+        ),
+        mide=(
+            "las filas de la tabla watchlist: los pares que el usuario cargó "
+            "manualmente, tal como los guardó"
+        ),
+        infiere="nada",
+        no_sabe=(
+            "si esos pares siguen listados y operables en su exchange: la "
+            "watchlist guarda lo que el usuario cargó y no se revalida contra "
+            "el catálogo de pares. Un par deslistado seguiría apareciendo. "
+            "Tampoco trae precio ni métricas: solo la composición de la lista"
+        ),
+        fuente="tabla `watchlist`, escrita a mano por el usuario desde la UI",
+        metodo="lectura directa, sin cálculo",
+        parametros=[
+            Param(
+                nombre="grupo",
+                tipo=str,
+                descripcion="Filtrar por grupo nombrado. Si se omite, devuelve todos.",
+                requerido=False,
+                ejemplos=("general",),
+            ),
+        ],
+    )
     async def pares_seguidos(self, grupo: str | None = None) -> list:
         """Pares de un grupo (o todos). Cada fila se puede materializar como Par."""
         base = """SELECT id, coin_id, base AS symbol, quote, exchange,

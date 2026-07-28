@@ -18,6 +18,7 @@ Estado en este esqueleto (paso 1):
 from __future__ import annotations
 
 from backend.domain.base import Composable
+from backend.domain.registry import capacidad
 
 
 class Mercado(Composable):
@@ -36,6 +37,46 @@ class Mercado(Composable):
 
     # ══ IMPLEMENTADAS ═════════════════════════════════════════════════════════
 
+    @capacidad(
+        nombre="regimen_mercado",
+        descripcion=(
+            "El régimen vigente del mercado cripto en tres temporalidades "
+            "(largo, medio y corto plazo), con su nivel de convicción. Es el "
+            "clima general, medido sobre Bitcoin como proxy del conjunto. "
+            "Usar cuando se pregunte por el estado del mercado, el ciclo o el "
+            "contexto general."
+        ),
+        entidad="mercado",
+        categoria="mercado",
+        costo="barato",
+        devuelve=(
+            "por cada temporalidad: régimen (ACUMULACION, ALCISTA_A, ALCISTA_B, "
+            "DISTRIBUCION, BAJISTA, LATERAL) y convicción 0-100; más la marca de "
+            "tiempo del snapshot"
+        ),
+        mide=(
+            "el último snapshot guardado: el régimen clasificado y la convicción "
+            "(0-100) para cada una de las tres temporalidades, con su timestamp"
+        ),
+        infiere=(
+            "el régimen ES una clasificación inferida: 12 señales votan y el "
+            "resultado se pondera por temporalidad. La convicción mide cuánto "
+            "coinciden las señales entre sí, no la probabilidad de que el "
+            "mercado se comporte según ese régimen"
+        ),
+        no_sabe=(
+            "si el régimen se sostendrá ni cuándo cambiará; una convicción alta "
+            "significa acuerdo entre señales, no certeza sobre el futuro. "
+            "Tampoco dice nada de coins individuales: es el conjunto medido "
+            "sobre BTC, y una coin puede moverse en contra del régimen"
+        ),
+        fuente="tabla `snapshots`, escrita por el job de régimen cada 60 minutos",
+        metodo=(
+            "voto ponderado de 12 señales núcleo (valuación, momentum, "
+            "sentimiento, flujo, participación) evaluadas en tres ventanas "
+            "temporales; la convicción es el grado de consenso entre ellas"
+        ),
+    )
     async def regimen_global(self) -> dict:
         """Snapshot de régimen 3 temporalidades. Fuente: snapshots (PG)."""
         async with self._pool.acquire() as conn:

@@ -21,6 +21,7 @@ import json
 
 from backend.domain.base import Composable
 from backend.domain.par import Par
+from backend.domain.registry import capacidad, Param
 
 
 class Coin(Composable):
@@ -168,6 +169,65 @@ class Coin(Composable):
         from backend.strat.pair_discovery import discover_pairs
         return await discover_pairs(row["symbol"])
 
+    @capacidad(
+        nombre="analizar_coin",
+        descripcion=(
+            "Cómo se sitúa una criptomoneda concreta en el mercado actual. "
+            "Cruza tres capas: el régimen global vigente, la fuerza del sector "
+            "al que pertenece, y su fuerza relativa frente a Bitcoin. Usar "
+            "cuando se pregunte por una coin puntual."
+        ),
+        entidad="coin",
+        categoria="coin",
+        costo="medio",
+        devuelve=(
+            "contexto_global (régimen del mercado), posicion_sectorial "
+            "(variación del sector y su ranking de fuerza) y fuerza_vs_btc "
+            "(cambio del ratio a 24h y 7d, con lectura y origen del cálculo)"
+        ),
+        mide=(
+            "el régimen global vigente; la variación promedio a 24h y 7d del "
+            "sector de la coin y su posición entre todos los sectores; el "
+            "cambio porcentual del ratio COIN/BTC a 24h y 7d"
+        ),
+        infiere=(
+            "tres lecturas interpretativas: el sector se etiqueta "
+            "fuerte/neutral/débil y la coin líder/neutral/rezagada, ambas según "
+            "un umbral de ±3% en 7 días. Ese umbral es una convención elegida, "
+            "no una constante del mercado"
+        ),
+        no_sabe=(
+            "si la fuerza relativa se sostendrá; el umbral de ±3% es "
+            "calibrable y otro valor daría otra lectura sobre los mismos datos. "
+            "Cuando la coin no tiene par /BTC directo, el ratio se deriva de "
+            "COIN/USDT ÷ BTC/USDT, que puede diferir del par real por liquidez "
+            "y spread — el campo `fuente_calculo` indica cuál se usó. Tampoco "
+            "sabe por qué se mueve: no hay lectura de causas ni de noticias"
+        ),
+        fuente=(
+            "tabla `snapshots` (job horario), tabla `coins` para el sector "
+            "(sync cada 6 h), y velas diarias del par vía adaptadores de "
+            "exchange (MEXC/CoinEx)"
+        ),
+        metodo=(
+            "el ratio vs BTC se calcula sobre los cierres de las últimas 10 "
+            "velas diarias: cambio del par COIN/BTC si existe, o del cociente "
+            "COIN/USDT ÷ BTC/USDT si no. El sector se toma del mapa agregado "
+            "por supercategoría, ordenado por variación a 7 días"
+        ),
+        parametros=[
+            Param(
+                nombre="coin_id",
+                tipo=str,
+                descripcion=(
+                    "id de CoinGecko de la coin, en minúsculas y con guiones. "
+                    "NO el símbolo (usar 'ontology', no 'ONT')"
+                ),
+                requerido=True,
+                ejemplos=("bitcoin", "ethereum", "ontology", "oasis-network"),
+            ),
+        ],
+    )
     async def regimen_relativo(self) -> dict:
         """
         Cómo se para la coin en el clima de mercado. Combina:
