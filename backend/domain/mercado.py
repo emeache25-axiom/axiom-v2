@@ -180,8 +180,9 @@ class Mercado(Composable):
             "de las coins CHICAS (que pesan igual en el promedio simple pero "
             "poco en el ponderado); si es NEGATIVA, se movieron las GRANDES y "
             "las chicas quedaron atrás; si es cercana a cero, el movimiento fue "
-            "parejo. Además: market_cap, peso_pct, coin_count, lectura "
-            "(fuerte/neutral/débil) y fuerza_rank"
+            "parejo. Además: market_cap, peso_pct, coin_count, `clasificado`, "
+            "lectura (fuerte/neutral/débil, o `sin_clasificar`) y fuerza_rank "
+            "(null para los no clasificados)"
         ),
         mide=(
             "por cada supercategoría: la suma de capitalizaciones; la variación "
@@ -201,8 +202,11 @@ class Mercado(Composable):
             "calibrable y otro valor daría otras etiquetas. La clasificación "
             "por supercategoría es de AXIOM sobre las categorías de CoinGecko: "
             "una coin puede pertenecer razonablemente a más de un sector y solo "
-            "se le asigna uno. Y los datos son del último sync, hasta 6 horas "
-            "de antigüedad"
+            "se le asigna uno. La categoría 'otros' NO es un sector: agrupa lo "
+            "que no se pudo clasificar, proyectos sin nada en común, así que su "
+            "agregado no representa la fuerza de nada — por eso viene con "
+            "clasificado=false, sin lectura y fuera del ranking. Y los datos "
+            "son del último sync, hasta 6 horas de antigüedad"
         ),
         fuente="tabla `coins` (sync desde CoinGecko cada 6 h)",
         metodo=(
@@ -228,7 +232,10 @@ class Mercado(Composable):
         async with self._pool.acquire() as conn:
             rows = await conn.fetch("""
                 SELECT
-                    supercat,
+                    -- COALESCE unifica: sin esto, las coins con supercat NULL
+                    -- formaban un grupo aparte que luego se renombraba 'otros',
+                    -- y aparecían DOS entradas con el mismo nombre.
+                    COALESCE(supercat, 'otros') AS supercat,
                     SUM(market_cap)  AS total_mcap,
                     COUNT(*)         AS coin_count,
                     -- Variación ponderada por capitalización (principal)
@@ -241,7 +248,7 @@ class Mercado(Composable):
                     AVG(change_7d)   AS simple_7d
                 FROM coins
                 WHERE market_cap IS NOT NULL AND market_cap > 0
-                GROUP BY supercat
+                GROUP BY COALESCE(supercat, 'otros')
                 ORDER BY total_mcap DESC
             """)
 
@@ -253,6 +260,11 @@ class Mercado(Composable):
         categorias = []
         for r in rows:
             sc   = r["supercat"] or "otros"
+            # 'otros' NO es un sector: es el cajón de las coins sin clasificar.
+            # Agrupa proyectos sin nada en común, así que su agregado no
+            # representa la fuerza de nada. Se devuelve igual (su capitalización
+            # es real) pero queda fuera del ranking y sin lectura de fuerza.
+            clasificado = sc != "otros"
             mcap = float(r["total_mcap"]) if r["total_mcap"] else 0.0
             p24  = _r(r["pond_24h"])
             p7   = _r(r["pond_7d"])
@@ -270,23 +282,36 @@ class Mercado(Composable):
                 # Cuánto del movimiento viene de las coins chicas
                 "dispersion":     _r(s7 - p7) if (s7 is not None and p7 is not None) else None,
                 "coin_count":     r["coin_count"],
-                "lectura":        self._lectura_sector(p7),
+                "clasificado":    clasificado,
+                "lectura":        self._lectura_sector(p7) if clasificado
+                                  else "sin_clasificar",
             })
 
         # Ranking de fuerza sobre el ponderado a 7d, desempate por 24h ponderado.
+        # Los no clasificados ('otros') quedan fuera del ranking y al final de
+        # la lista: rankear un cajón de sastre heterogéneo no significa nada.
         def _clave(c):
             c7  = c["change_7d"]  if c["change_7d"]  is not None else -9999
             c24 = c["change_24h"] if c["change_24h"] is not None else -9999
             return (c7, c24)
 
-        ordenadas = sorted(categorias, key=_clave, reverse=True)
-        for i, c in enumerate(ordenadas, start=1):
+        clasificadas = sorted([c for c in categorias if c["clasificado"]],
+                              key=_clave, reverse=True)
+        for i, c in enumerate(clasificadas, start=1):
             c["fuerza_rank"] = i
 
+        sin_clasificar = [c for c in categorias if not c["clasificado"]]
+        for c in sin_clasificar:
+            c["fuerza_rank"] = None
+
+        ordenadas = clasificadas + sin_clasificar
+
         return {
-            "categorias": ordenadas,
-            "total_mcap": total_mcap,
-            "criterio":   "variación 7d ponderada por capitalización (desempate 24h ponderado)",
+            "categorias":       ordenadas,
+            "total_mcap":       total_mcap,
+            "sectores_rankeados": len(clasificadas),
+            "criterio": ("variación 7d ponderada por capitalización "
+                         "(desempate 24h ponderado); 'otros' no se rankea"),
         }
 
     async def sector(self, supercategoria: str) -> dict:
@@ -306,7 +331,9 @@ class Mercado(Composable):
                     "sector_mediana_7d": c["mediana_7d"],
                     "sector_dispersion": c["dispersion"],
                     "sector_rank":       c["fuerza_rank"],
-                    "total_sectores":    len(m["categorias"]),
+                    "clasificado":       c["clasificado"],
+                    "total_sectores":    m.get("sectores_rankeados",
+                                               len(m["categorias"])),
                     "lectura":           c["lectura"],
                 }
         # Sin datos para esa supercategoría
@@ -317,8 +344,9 @@ class Mercado(Composable):
             "sector_mediana_7d": None,
             "sector_dispersion": None,
             "sector_rank":       None,
-            "total_sectores":    len(m.get("categorias", [])),
-            "lectura":           "sector_neutral",
+            "clasificado":       False,
+            "total_sectores":    m.get("sectores_rankeados", 0),
+            "lectura":           "sin_datos",
         }
 
     @capacidad(
