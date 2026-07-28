@@ -141,9 +141,11 @@ class Mercado(Composable):
 
     # ══ MAPA Y SECTOR (fuerza de sectores) ════════════════════════════════════
 
-    # Umbral de lectura de fuerza sectorial (sobre change_7d). Calibrable.
-    _UMBRAL_FUERTE = 3.0    # >+3% en 7d → sector fuerte
-    _UMBRAL_DEBIL  = -3.0   # <-3% en 7d → sector débil
+    # Umbrales de lectura de fuerza sectorial, sobre el cambio PONDERADO a 7d.
+    # OJO: se recalibraron al pasar de promedio simple a ponderado — los valores
+    # ponderados son bastante más chicos (ver método de `mapa`).
+    _UMBRAL_FUERTE = 3.0    # >+3% en 7d ponderado → sector fuerte
+    _UMBRAL_DEBIL  = -3.0   # <-3% en 7d ponderado → sector débil
 
     def _lectura_sector(self, change_7d: float | None) -> str:
         if change_7d is None:
@@ -159,57 +161,84 @@ class Mercado(Composable):
         descripcion=(
             "El mapa del mercado por sectores: cada supercategoría (defi, ai, "
             "memes, layer2, gaming, privacy, etc.) con su capitalización total, "
-            "peso relativo, variación a 24h y 7d, y su posición en el ranking "
-            "de fuerza. Usar para preguntas sobre qué sectores están fuertes o "
-            "débiles, o cómo se reparte el mercado."
+            "peso relativo, variación ponderada por capitalización, mediana y "
+            "promedio simple, y su posición en el ranking de fuerza. Usar para "
+            "preguntas sobre qué sectores están fuertes o débiles, o cómo se "
+            "reparte el mercado."
         ),
         entidad="mercado",
         categoria="mercado",
         costo="barato",
         devuelve=(
-            "lista de supercategorías ordenadas por fuerza, cada una con "
-            "market_cap, peso_pct, change_24h, change_7d, cantidad de coins, "
-            "lectura (fuerte/neutral/débil) y fuerza_rank"
+            "lista de supercategorías ordenadas por fuerza. Campos clave: "
+            "`change_7d` y `change_24h` son la variación PONDERADA por "
+            "capitalización (cuánto se movió el capital del sector); "
+            "`mediana_7d` es cómo le fue a la coin típica; "
+            "`promedio_simple_7d` es el promedio sin ponderar; y "
+            "`dispersion` = promedio_simple − ponderado. "
+            "CÓMO LEER dispersion: si es ALTA Y POSITIVA, el movimiento viene "
+            "de las coins CHICAS (que pesan igual en el promedio simple pero "
+            "poco en el ponderado); si es NEGATIVA, se movieron las GRANDES y "
+            "las chicas quedaron atrás; si es cercana a cero, el movimiento fue "
+            "parejo. Además: market_cap, peso_pct, coin_count, lectura "
+            "(fuerte/neutral/débil) y fuerza_rank"
         ),
         mide=(
-            "por cada supercategoría: la suma de capitalizaciones, el promedio "
-            "SIMPLE de las variaciones a 24h y 7d de sus coins, y la cantidad "
-            "de coins que la componen"
+            "por cada supercategoría: la suma de capitalizaciones; la variación "
+            "a 24h y 7d PONDERADA por capitalización (cuánto se movió el capital "
+            "invertido en el sector); la MEDIANA de la variación a 7d (cómo le "
+            "fue a la coin típica, sin que un caso extremo la distorsione); y el "
+            "promedio simple a 7d, que se conserva para comparar"
         ),
         infiere=(
             "dos lecturas: la etiqueta sector_fuerte/neutral/débil según un "
-            "umbral de ±3% en 7 días, y el ranking de fuerza que ordena los "
-            "sectores por esa variación. Ambos son criterios elegidos"
+            "umbral de ±3% sobre la variación PONDERADA a 7 días, y el ranking "
+            "de fuerza que ordena por esa misma variación. El umbral es un "
+            "criterio elegido, no una constante del mercado"
         ),
         no_sabe=(
-            "si la fuerza sectorial se sostendrá. El umbral de ±3% es una "
-            "convención calibrable, no una constante. Y algo importante: el "
-            "promedio de variación es SIMPLE, no ponderado por capitalización, "
-            "así que una coin chica pesa igual que una grande dentro del "
-            "sector — un sector puede figurar fuerte por el movimiento de "
-            "varias micro-caps aunque sus coins grandes estén planas"
+            "si la fuerza sectorial se sostendrá; el umbral de ±3% es "
+            "calibrable y otro valor daría otras etiquetas. La clasificación "
+            "por supercategoría es de AXIOM sobre las categorías de CoinGecko: "
+            "una coin puede pertenecer razonablemente a más de un sector y solo "
+            "se le asigna uno. Y los datos son del último sync, hasta 6 horas "
+            "de antigüedad"
         ),
         fuente="tabla `coins` (sync desde CoinGecko cada 6 h)",
         metodo=(
-            "agregación SQL por supercategoría: SUM de market_cap y AVG de las "
-            "variaciones; ordenado por variación a 7 días con desempate por 24h"
+            "agregación SQL por supercategoría. La variación es un promedio "
+            "PONDERADO por capitalización: SUM(cambio × market_cap) / "
+            "SUM(market_cap). Se usa ponderado —y no promedio simple— porque el "
+            "simple daba lecturas equivocadas: una micro-cap con +8.739% "
+            "arrastraba el promedio de un sector de 133 coins a +73%, y sectores "
+            "que caían por capital figuraban como fuertes. La mediana usa "
+            "PERCENTILE_CONT(0.5), inmune a valores extremos"
         ),
     )
     async def mapa(self) -> dict:
         """
         Categorías agregadas por supercategoría, CON ranking de fuerza.
         Fuente de verdad del sector (sector() filtra de acá).
-        Orden de fuerza: change_7d principal, change_24h desempate.
-        Lectura: valor absoluto del change_7d (fuerte/neutral/débil).
+
+        La variación se pondera por capitalización: mide cuánto se movió el
+        CAPITAL del sector, no la coin promedio. Se agrega la mediana para
+        responder "cómo le fue a la coin típica" sin que la distorsione un
+        caso extremo.
         """
         async with self._pool.acquire() as conn:
             rows = await conn.fetch("""
                 SELECT
                     supercat,
                     SUM(market_cap)  AS total_mcap,
-                    AVG(change_24h)  AS avg_change_24h,
-                    AVG(change_7d)   AS avg_change_7d,
-                    COUNT(*)         AS coin_count
+                    COUNT(*)         AS coin_count,
+                    -- Variación ponderada por capitalización (principal)
+                    SUM(change_24h * market_cap) / NULLIF(SUM(market_cap), 0) AS pond_24h,
+                    SUM(change_7d  * market_cap) / NULLIF(SUM(market_cap), 0) AS pond_7d,
+                    -- Mediana: la coin típica, inmune a outliers
+                    PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY change_7d) AS mediana_7d,
+                    -- Promedio simple: se conserva para medir dispersión
+                    AVG(change_24h)  AS simple_24h,
+                    AVG(change_7d)   AS simple_7d
                 FROM coins
                 WHERE market_cap IS NOT NULL AND market_cap > 0
                 GROUP BY supercat
@@ -218,28 +247,35 @@ class Mercado(Composable):
 
         total_mcap = sum(float(r["total_mcap"]) for r in rows if r["total_mcap"])
 
+        def _r(v, dec=2):
+            return round(float(v), dec) if v is not None else None
+
         categorias = []
         for r in rows:
-            sc      = r["supercat"] or "otros"
-            mcap    = float(r["total_mcap"]) if r["total_mcap"] else 0.0
-            c24     = round(float(r["avg_change_24h"]), 2) if r["avg_change_24h"] is not None else None
-            c7d     = round(float(r["avg_change_7d"]),  2) if r["avg_change_7d"]  is not None else None
-            pct     = round(mcap / total_mcap * 100, 2) if total_mcap > 0 else 0.0
+            sc   = r["supercat"] or "otros"
+            mcap = float(r["total_mcap"]) if r["total_mcap"] else 0.0
+            p24  = _r(r["pond_24h"])
+            p7   = _r(r["pond_7d"])
+            s7   = _r(r["simple_7d"])
+            pct  = round(mcap / total_mcap * 100, 2) if total_mcap > 0 else 0.0
             categorias.append({
                 "supercategoria": sc,
                 "market_cap":     mcap,
                 "peso_pct":       pct,
-                "change_24h":     c24,
-                "change_7d":      c7d,
+                # change_* son los PONDERADOS: es la lectura principal
+                "change_24h":     p24,
+                "change_7d":      p7,
+                "mediana_7d":     _r(r["mediana_7d"]),
+                "promedio_simple_7d": s7,
+                # Cuánto del movimiento viene de las coins chicas
+                "dispersion":     _r(s7 - p7) if (s7 is not None and p7 is not None) else None,
                 "coin_count":     r["coin_count"],
-                # lectura (crudo + interpretación): etiqueta por valor absoluto del 7d
-                "lectura":        self._lectura_sector(c7d),
+                "lectura":        self._lectura_sector(p7),
             })
 
-        # Ranking de fuerza: change_7d principal, change_24h desempate.
-        # None al fondo (se tratan como muy negativos para el orden).
+        # Ranking de fuerza sobre el ponderado a 7d, desempate por 24h ponderado.
         def _clave(c):
-            c7 = c["change_7d"] if c["change_7d"] is not None else -9999
+            c7  = c["change_7d"]  if c["change_7d"]  is not None else -9999
             c24 = c["change_24h"] if c["change_24h"] is not None else -9999
             return (c7, c24)
 
@@ -247,11 +283,10 @@ class Mercado(Composable):
         for i, c in enumerate(ordenadas, start=1):
             c["fuerza_rank"] = i
 
-        # Se devuelve en orden de fuerza (rank 1 = sector más fuerte)
         return {
             "categorias": ordenadas,
             "total_mcap": total_mcap,
-            "criterio":   "change_7d (desempate change_24h)",
+            "criterio":   "variación 7d ponderada por capitalización (desempate 24h ponderado)",
         }
 
     async def sector(self, supercategoria: str) -> dict:
@@ -265,8 +300,11 @@ class Mercado(Composable):
             if c["supercategoria"] == supercategoria:
                 return {
                     "supercategoria":    c["supercategoria"],
+                    # Ponderados por capitalización (ver mapa)
                     "sector_change_24h": c["change_24h"],
                     "sector_change_7d":  c["change_7d"],
+                    "sector_mediana_7d": c["mediana_7d"],
+                    "sector_dispersion": c["dispersion"],
                     "sector_rank":       c["fuerza_rank"],
                     "total_sectores":    len(m["categorias"]),
                     "lectura":           c["lectura"],
@@ -276,6 +314,8 @@ class Mercado(Composable):
             "supercategoria":    supercategoria,
             "sector_change_24h": None,
             "sector_change_7d":  None,
+            "sector_mediana_7d": None,
+            "sector_dispersion": None,
             "sector_rank":       None,
             "total_sectores":    len(m.get("categorias", [])),
             "lectura":           "sector_neutral",
