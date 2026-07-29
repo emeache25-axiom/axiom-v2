@@ -36,6 +36,25 @@ async def _run_sync_categories(pool) -> None:
         logger.error(f"[scheduler] Error en sync categorías: {exc}")
 
 
+async def _run_completar_categorias(pool) -> None:
+    """
+    Diario: rellena las categorías que el scraping semanal no logró obtener.
+
+    El sync de categorías scrapea el HTML de coingecko.com y para algunas coins
+    no encuentra nada, dejándolas sin sector. La API sí las devuelve, así que
+    este job las completa. Opera solo sobre el faltante (~8 min para 234).
+    """
+    from backend.services.categorias_fill import completar_categorias
+    try:
+        r = await completar_categorias(pool)
+        if r.get("pendientes"):
+            logger.info(
+                f"[scheduler] Categorías rellenadas: {r['clasificadas']} clasificadas, "
+                f"{r['sin_categorias']} sin categoría, {r['errores']} errores")
+    except Exception as exc:
+        logger.error(f"[scheduler] Error rellenando categorías: {exc}")
+
+
 async def _run_sync_pairs(pool) -> None:
     """
     Cada 6 h: refresca el catálogo de pares tradeables de MEXC/CoinEx y los
@@ -217,6 +236,20 @@ def start_scheduler(pool) -> None:
         coalesce=True,
     )
 
+
+    # Relleno de categorías faltantes — diario 03:00 UTC (fuera de horas pico)
+    _scheduler.add_job(
+        _run_completar_categorias,
+        trigger="cron",
+        hour=3,
+        minute=0,
+        timezone="UTC",
+        args=[pool],
+        id="categorias_fill_job",
+        name="Completar categorías faltantes",
+        misfire_grace_time=3600,
+        coalesce=True,
+    )
 
     # ── PARES (el universo tradeable) ────────────────────────────────────────
 

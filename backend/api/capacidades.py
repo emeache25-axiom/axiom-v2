@@ -61,6 +61,30 @@ async def formato_mcp():
     return {"tools": registro.a_mcp()}
 
 
+@router.get("/_/categorias/estado")
+async def estado_categorias(request: Request):
+    """
+    Cuántas coins están sin clasificar y cuánta capitalización representan.
+    'otros' no es un sector: es ausencia de clasificación, y ensucia el mapa.
+    """
+    from backend.services.categorias_fill import estado
+    return await estado(request.app.state.db_pool)
+
+
+@router.post("/_/categorias/completar")
+async def completar_categorias_endpoint(
+    request: Request,
+    limite: int = Query(300, ge=1, le=1000,
+                        description="Máximo de coins a procesar en esta corrida"),
+):
+    """
+    Rellena las categorías que el scraping semanal no logró obtener, usando la
+    API de CoinGecko. Unos 2,2 s por coin: 234 coins ≈ 8 minutos.
+    """
+    from backend.services.categorias_fill import completar_categorias
+    return await completar_categorias(request.app.state.db_pool, limite=limite)
+
+
 @router.get("/{nombre}")
 async def describir(nombre: str):
     """Contrato completo de una capacidad."""
