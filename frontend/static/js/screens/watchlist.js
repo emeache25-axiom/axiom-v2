@@ -493,14 +493,13 @@ const WatchlistScreen = {
           <i class="ti ti-adjustments-horizontal" style="font-size:13px;"></i>
           Filtros básicos
         </button>
-        <button id="sc-type-volatility"
-          onclick="WatchlistScreen._switchScreenerType('volatility')"
+        <button onclick="Router.go('pairs')" title="El screener de volatilidad ahora opera sobre pares tradeables"
           style="display:flex;align-items:center;gap:6px;padding:7px 14px;
-                 border-radius:var(--radius-s);border:0.5px solid var(--w1);
+                 border-radius:var(--radius-s);border:0.5px dashed var(--w1);
                  background:transparent;color:var(--t3);font-size:12px;
                  cursor:pointer;transition:all .15s;">
-          <i class="ti ti-chart-candle" style="font-size:13px;"></i>
-          Volatilidad estructural
+          <i class="ti ti-arrows-exchange" style="font-size:13px;"></i>
+          Volatilidad → ver en Pares
         </button>
         <button id="sc-type-open_high"
           onclick="WatchlistScreen._switchScreenerType('open_high')"
@@ -581,78 +580,6 @@ const WatchlistScreen = {
       </div>
 
       <!-- Filtros volatilidad -->
-      <div id="sc-filters-volatility" style="display:none;">
-        <div class="card" style="padding:14px 16px;margin-bottom:14px;
-                                  border:0.5px solid var(--w1);
-                                  border-left:3px solid #B47514;">
-          <div style="margin-bottom:10px;">
-            <div style="font-size:12px;color:var(--t2);line-height:1.5;">
-              <i class="ti ti-info-circle" style="color:#B47514;"></i>
-              Encuentra coins donde al menos <strong style="color:var(--t1);">X% de las velas diarias</strong>
-              en los últimos 30 días tienen un rango <strong style="color:var(--t1);">(máx-mín)/mín ≥ Y%</strong>.
-              Ideal para range trading e identificar activos con volatilidad consistente.
-            </div>
-          </div>
-          <div style="display:flex;flex-wrap:wrap;align-items:flex-end;gap:16px;">
-            <div>
-              <div style="font-family:var(--f2);font-size:9px;color:var(--t3);
-                          text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px;">
-                Rango mínimo por vela (%)
-              </div>
-              <div style="display:flex;align-items:center;gap:8px;">
-                <input id="sc-vol-min-range" type="number" value="3" min="0.5" max="50" step="0.5"
-                  style="width:72px;padding:6px 8px;border-radius:var(--radius-s);
-                         border:0.5px solid var(--w1);background:var(--c2);
-                         color:var(--t1);font-size:13px;font-weight:600;text-align:center;">
-                <span style="font-size:12px;color:var(--t3);">%</span>
-              </div>
-            </div>
-            <div>
-              <div style="font-family:var(--f2);font-size:9px;color:var(--t3);
-                          text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px;">
-                Mínimo velas que cumplen (%)
-              </div>
-              <div style="display:flex;align-items:center;gap:8px;">
-                <input id="sc-vol-min-pct" type="number" value="80" min="50" max="100" step="5"
-                  style="width:72px;padding:6px 8px;border-radius:var(--radius-s);
-                         border:0.5px solid var(--w1);background:var(--c2);
-                         color:var(--t1);font-size:13px;font-weight:600;text-align:center;">
-                <span style="font-size:12px;color:var(--t3);">%</span>
-              </div>
-            </div>
-            <div>
-              <div style="font-family:var(--f2);font-size:9px;color:var(--t3);
-                          text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px;">Categoría</div>
-              <select id="sc-vol-supercat"
-                style="padding:6px 10px;border-radius:var(--radius-s);border:0.5px solid var(--w1);
-                       background:var(--c2);color:var(--t1);font-size:12px;cursor:pointer;min-width:130px;">
-                ${supercats.map(([v,l]) => `<option value="${v}">${l}</option>`).join('')}
-              </select>
-            </div>
-            <div>
-              <div style="font-family:var(--f2);font-size:9px;color:var(--t3);
-                          text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px;">Ordenar por</div>
-              <select id="sc-vol-sort-by"
-                style="padding:6px 10px;border-radius:var(--radius-s);border:0.5px solid var(--w1);
-                       background:var(--c2);color:var(--t1);font-size:12px;cursor:pointer;">
-                <option value="avg_range_pct">Rango promedio</option>
-                <option value="pct_velas_ok">% velas OK</option>
-                <option value="rank">Rank</option>
-                <option value="volume_24h">Volumen</option>
-              </select>
-            </div>
-            <div style="display:flex;gap:6px;margin-left:auto;">
-              <button onclick="WatchlistScreen._runScreener()"
-                style="padding:6px 14px;border-radius:var(--radius-s);border:none;
-                       background:#B47514;color:#fff;font-size:12px;font-weight:600;cursor:pointer;">
-                <i class="ti ti-chart-candle"></i> Screenear
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Filtros open→high -->
       <div id="sc-filters-open_high" style="display:none;">
         <div class="card" style="padding:14px 16px;margin-bottom:14px;
                                   border:0.5px solid var(--w1);
@@ -738,12 +665,11 @@ const WatchlistScreen = {
     // Config por tipo: [color activo, color texto activo]
     const typeConfig = {
       'basic':      ['var(--cy)', '#0F0E0D'],
-      'volatility': ['#B47514',  '#fff'],
       'open_high':  ['#56A14F',  '#fff'],
     };
 
     // Resetear todos los botones
-    ['basic','volatility','open_high'].forEach(t => {
+    ['basic','open_high'].forEach(t => {
       const btn = document.getElementById(`sc-type-${t}`);
       if (!btn) return;
       const isActive = t === type;
@@ -755,7 +681,7 @@ const WatchlistScreen = {
     });
 
     // Mostrar/ocultar paneles de filtros
-    ['basic','volatility','open_high'].forEach(t => {
+    ['basic','open_high'].forEach(t => {
       const panel = document.getElementById(`sc-filters-${t}`);
       if (panel) panel.style.display = t === type ? 'block' : 'none';
     });
@@ -782,10 +708,6 @@ const WatchlistScreen = {
     if (el('sc-max-change')) el('sc-max-change').value  = '';
     if (el('sc-sort-by'))    el('sc-sort-by').value     = 'rank';
     if (el('sc-sort-dir'))   el('sc-sort-dir').value    = 'asc';
-    if (el('sc-vol-min-range')) el('sc-vol-min-range').value = '3';
-    if (el('sc-vol-min-pct'))   el('sc-vol-min-pct').value   = '80';
-    if (el('sc-vol-supercat'))  el('sc-vol-supercat').value  = '';
-    if (el('sc-vol-sort-by'))   el('sc-vol-sort-by').value   = 'avg_range_pct';
     this._runScreener();
   },
 
@@ -801,15 +723,7 @@ const WatchlistScreen = {
     try {
       let params = { limit: 100 };
 
-      if (this._screenerType === 'volatility') {
-        const minRange = parseFloat(document.getElementById('sc-vol-min-range')?.value) || 3;
-        const minPct   = parseFloat(document.getElementById('sc-vol-min-pct')?.value)   || 80;
-        const supercat = document.getElementById('sc-vol-supercat')?.value || '';
-        const sortBy   = document.getElementById('sc-vol-sort-by')?.value  || 'avg_range_pct';
-        params = { type: 'volatility', min_range: minRange, min_pct_ok: minPct,
-                   sort_by: sortBy, sort_dir: 'desc', limit: 100 };
-        if (supercat) params.supercat = supercat;
-      } else if (this._screenerType === 'open_high') {
+      if (this._screenerType === 'open_high') {
         const minRange = parseFloat(document.getElementById('sc-oh-min-range')?.value) || 1;
         const minPct   = parseFloat(document.getElementById('sc-oh-min-pct')?.value)   || 80;
         const supercat = document.getElementById('sc-oh-supercat')?.value || '';
@@ -826,9 +740,7 @@ const WatchlistScreen = {
       }
 
       const data = await API.getScreener(params);
-      if (this._screenerType === 'volatility') {
-        resultsEl.innerHTML = this._renderVolatilityResults(data);
-      } else if (this._screenerType === 'open_high') {
+      if (this._screenerType === 'open_high') {
         resultsEl.innerHTML = this._renderOpenHighResults(data);
       } else {
         resultsEl.innerHTML = this._renderScreenerResults(data);
@@ -931,120 +843,17 @@ const WatchlistScreen = {
     </div>`;
   },
 
-  _renderVolatilityResults(data) {
-    if (!data.results || !data.results.length) {
-      return `<div style="padding:40px;text-align:center;color:var(--t3);font-size:13px;">
-        <i class="ti ti-chart-candle-filled" style="font-size:28px;display:block;margin-bottom:8px;color:var(--t4);"></i>
-        Sin resultados — probá con un rango menor o menos % de velas requeridas
-      </div>`;
-    }
-
-    const rows = data.results.map(c => {
-      const pct    = c.pct_velas_ok || 0;
-      const avg    = c.avg_range_pct || 0;
-      const barW   = Math.min(pct, 100);
-      const barColor = pct >= 90 ? '#56A14F' : pct >= 80 ? '#B47514' : '#D86326';
-      return `
-      <div style="display:grid;
-                  grid-template-columns:32px 1fr 90px 70px 70px 80px 110px 110px 80px;
-                  gap:8px;padding:9px 14px;border-bottom:0.5px solid var(--w1);
-                  align-items:center;">
-        <div style="font-family:var(--f2);font-size:10px;color:var(--t4);text-align:center;">
-          ${c.rank ?? '—'}
-        </div>
-        <div style="display:flex;align-items:center;gap:8px;min-width:0;">
-          ${c.image
-            ? `<img src="${c.image}" style="width:24px;height:24px;border-radius:50%;flex-shrink:0;">`
-            : `<div style="width:24px;height:24px;border-radius:50%;background:var(--c3);
-                 display:flex;align-items:center;justify-content:center;
-                 font-size:8px;font-family:var(--f2);color:var(--t2);">${c.symbol.slice(0,4)}</div>`}
-          <div style="min-width:0;">
-            <div style="font-size:13px;font-weight:500;color:var(--t1);
-                        white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${c.name}</div>
-            <div style="font-family:var(--f2);font-size:10px;color:var(--t3);">${c.symbol}</div>
-          </div>
-        </div>
-        <div style="font-family:var(--f2);font-size:12px;color:var(--t1);text-align:right;">
-          ${this._price(c.price)}
-        </div>
-        <div style="font-family:var(--f2);font-size:12px;font-weight:600;
-                    text-align:right;color:${this._chgColor(c.change_24h)};">
-          ${c.change_24h != null ? `${c.change_24h > 0 ? '+' : ''}${c.change_24h.toFixed(2)}%` : '—'}
-        </div>
-        <div style="font-family:var(--f2);font-size:12px;font-weight:600;
-                    text-align:right;color:${this._chgColor(c.change_7d)};">
-          ${c.change_7d != null ? `${c.change_7d > 0 ? '+' : ''}${c.change_7d.toFixed(2)}%` : '—'}
-        </div>
-        <div style="font-family:var(--f2);font-size:11px;color:var(--t3);text-align:right;">
-          ${this._fmt(c.volume_24h)}
-        </div>
-        <!-- Rango promedio -->
-        <div style="text-align:right;">
-          <div style="font-family:var(--f2);font-size:12px;font-weight:700;color:#B47514;">
-            ${avg.toFixed(2)}%
-          </div>
-          <div style="font-family:var(--f2);font-size:9px;color:var(--t4);">rango avg</div>
-        </div>
-        <!-- % velas OK con barra -->
-        <div>
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px;">
-            <span style="font-family:var(--f2);font-size:11px;font-weight:600;color:${barColor};">
-              ${pct.toFixed(1)}%
-            </span>
-            <span style="font-family:var(--f2);font-size:9px;color:var(--t4);">
-              ${c.velas_ok}/${c.total_velas}
-            </span>
-          </div>
-          <div style="height:3px;background:var(--c3);border-radius:2px;overflow:hidden;">
-            <div style="height:100%;width:${barW}%;background:${barColor};border-radius:2px;"></div>
-          </div>
-        </div>
-        <div style="text-align:center;">
-          <button onclick="WatchlistScreen._quickAdd('${c.id}','${c.name}','${c.symbol}')"
-            title="Agregar a watchlist"
-            style="border:0.5px solid var(--cy);background:var(--cyg);color:var(--cy);
-                   border-radius:4px;padding:3px 9px;font-size:11px;cursor:pointer;">
-            <i class="ti ti-plus"></i>
-          </button>
-        </div>
-      </div>`;
-    }).join('');
-
-    return `
-    <div class="card" style="padding:0;overflow:hidden;
-                              border-top:2px solid #B47514;
-                              border-left:1px solid #B4751440;
-                              border-right:1px solid #B4751440;
-                              border-bottom:1px solid #B4751440;">
-      <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;
-                  border-bottom:1px solid var(--w1);">
-        <i class="ti ti-chart-candle" style="color:#B47514;font-size:14px;"></i>
-        <span style="font-size:13px;font-weight:600;color:var(--t1);">Volatilidad Estructural</span>
-        <span style="font-family:var(--f2);font-size:10px;color:var(--t3);">
-          rango ≥ ${data.params?.min_range}% · ${data.params?.min_pct_ok}% velas · 30 días
-        </span>
-        <span style="font-family:var(--f2);font-size:10px;color:var(--t3);margin-left:auto;">
-          ${data.total} coins
-        </span>
-      </div>
-      <div style="display:grid;
-                  grid-template-columns:32px 1fr 90px 70px 70px 80px 110px 110px 80px;
-                  gap:8px;padding:7px 14px;border-bottom:0.5px solid var(--w1);
-                  font-family:var(--f2);font-size:9px;color:var(--t4);
-                  text-transform:uppercase;letter-spacing:.1em;">
-        <span>#</span>
-        <span>Activo</span>
-        <span style="text-align:right;">Precio</span>
-        <span style="text-align:right;">24h</span>
-        <span style="text-align:right;">7d</span>
-        <span style="text-align:right;">Vol 24h</span>
-        <span style="text-align:right;">Rango avg</span>
-        <span>% Velas OK</span>
-        <span style="text-align:center;">+Watch</span>
-      </div>
-      ${rows}
-    </div>`;
-  },
+  // _renderVolatilityResults se eliminó el 30/07/2026.
+  //
+  // El screener de volatilidad estructural operaba sobre `ohlcv_daily` (velas
+  // de la coin en USD), tabla que se eliminó al migrar el universo a PARES
+  // tradeables. Su reemplazo es el screener de pares —/api/pairs/ y la pantalla
+  // Pares—, que mide lo mismo sobre el par que se va a operar y no sobre un
+  // promedio agregado de todos los mercados.
+  //
+  // El botón seguía visible en la interfaz llamando a un modo que el backend ya
+  // no soportaba: caía en el screener básico y se renderizaba con el formato
+  // equivocado.
 
   _renderOpenHighResults(data) {
     if (!data.results || !data.results.length) {
