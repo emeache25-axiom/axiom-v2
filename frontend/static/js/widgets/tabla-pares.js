@@ -73,6 +73,19 @@
       get: p => Fmt.pct(Fmt.campo(p, 'dias_repetible_pct', 'range_days_pct'), 0),
       metrica: true,
     },
+    impulso: {
+      label: 'Impulso', ancho: '70px', align: 'right', dir: 'desc', orden: 'impulso',
+      get: p => Fmt.pct(Fmt.campo(p, 'impulso_pct', 'impulso_oh')),
+      metrica: true,
+      // Cuánto sube desde la apertura hasta el máximo del día. A diferencia
+      // del rango, mide solo el tramo alcista: un par que abre arriba y cae
+      // tiene rango alto pero impulso bajo.
+    },
+    impulso_rep: {
+      label: 'Imp.rep', ancho: '68px', align: 'right', dir: 'desc', orden: 'impulso_rep',
+      get: p => Fmt.pct(Fmt.campo(p, 'impulso_dias_pct'), 0),
+      metrica: true,
+    },
     spread: {
       label: 'Spread', ancho: '66px', align: 'right', dir: 'asc', orden: 'spread',
       get: p => Fmt.pct(Fmt.campo(p, 'spread_pct'), 3),

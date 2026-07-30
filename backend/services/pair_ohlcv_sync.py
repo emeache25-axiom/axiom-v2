@@ -41,6 +41,11 @@ MIN_VELAS = 10              # mínimo para que las métricas signifiquen algo
 # Umbral por defecto para range_days_pct: % de rango que cuenta como "se movió"
 UMBRAL_RANGO_DEFAULT = 3.0
 
+# Umbral para impulso_dias_pct: % de subida desde la apertura que cuenta como
+# "hubo impulso". Más bajo que el de rango porque mide solo el tramo alcista
+# del día, no la oscilación completa.
+UMBRAL_IMPULSO_DEFAULT = 1.5
+
 # Concurrencia: cuántos pares se piden a la vez por exchange.
 # Los exchanges permiten cientos por minuto; 8 es conservador y estable.
 CONCURRENCIA = 8
@@ -48,34 +53,50 @@ CONCURRENCIA = 8
 
 # ══ Cálculo de métricas ═══════════════════════════════════════════════════════
 
-def calcular_metricas(velas: list[dict], umbral_rango: float = UMBRAL_RANGO_DEFAULT) -> dict:
+def calcular_metricas(velas: list[dict],
+                      umbral_rango: float = UMBRAL_RANGO_DEFAULT,
+                      umbral_impulso: float = UMBRAL_IMPULSO_DEFAULT) -> dict:
     """
-    Calcula las tres métricas sobre las últimas DIAS_METRICAS velas.
+    Calcula las métricas sobre las últimas DIAS_METRICAS velas.
     Devuelve None en las que no se puedan calcular (pocas velas, datos inválidos).
+
+    RANGO vs IMPULSO — miden cosas distintas y son complementarias:
+      · el RANGO (high-low)/low no distingue dirección: un día que abre arriba
+        y cierra abajo tiene rango alto igual.
+      · el IMPULSO (high-open)/open mide solo el tramo ALCISTA desde la
+        apertura. Es el que importa para comprar en la apertura y vender en el
+        máximo del día.
+    Un par puede tener rango alto e impulso bajo (se mueve, pero hacia abajo).
     """
     vals = velas[-DIAS_METRICAS:] if len(velas) > DIAS_METRICAS else velas
     if len(vals) < MIN_VELAS:
         return {"volatility_30d": None, "volatility_std": None,
-                "range_days_pct": None, "candles_count": len(velas)}
+                "range_days_pct": None, "impulso_oh": None,
+                "impulso_dias_pct": None, "candles_count": len(velas)}
 
     rangos = []       # (high-low)/low × 100 por vela
+    impulsos = []     # (high-open)/open × 100 por vela — solo el tramo alcista
     retornos = []     # (close_hoy - close_ayer)/close_ayer por vela
     prev_close = None
 
     for v in vals:
         try:
             hi, lo, cl = float(v["high"]), float(v["low"]), float(v["close"])
+            op = float(v.get("open") or 0)
         except (TypeError, ValueError, KeyError):
             continue
         if lo > 0 and hi >= lo:
             rangos.append((hi - lo) / lo * 100.0)
+        if op > 0 and hi >= op:
+            impulsos.append((hi - op) / op * 100.0)
         if prev_close and prev_close > 0 and cl > 0:
             retornos.append((cl - prev_close) / prev_close)
         prev_close = cl
 
     if not rangos:
         return {"volatility_30d": None, "volatility_std": None,
-                "range_days_pct": None, "candles_count": len(velas)}
+                "range_days_pct": None, "impulso_oh": None,
+                "impulso_dias_pct": None, "candles_count": len(velas)}
 
     # 1) Rango diario promedio (métrica principal)
     rango_medio = sum(rangos) / len(rangos)
@@ -87,10 +108,17 @@ def calcular_metricas(velas: list[dict], umbral_rango: float = UMBRAL_RANGO_DEFA
     dias_ok = sum(1 for r in rangos if r >= umbral_rango)
     pct_ok = dias_ok / len(rangos) * 100.0
 
+    # 4) y 5) Impulso desde la apertura: promedio y repetibilidad
+    impulso_medio = sum(impulsos) / len(impulsos) if impulsos else None
+    impulso_pct = (sum(1 for i in impulsos if i >= umbral_impulso)
+                   / len(impulsos) * 100.0) if impulsos else None
+
     return {
         "volatility_30d": round(rango_medio, 4),
         "volatility_std": round(std, 4) if std is not None else None,
         "range_days_pct": round(pct_ok, 2),
+        "impulso_oh": round(impulso_medio, 4) if impulso_medio is not None else None,
+        "impulso_dias_pct": round(impulso_pct, 2) if impulso_pct is not None else None,
         "candles_count": len(velas),
     }
 
@@ -111,7 +139,8 @@ async def _traer_velas(exchange: str, pair_symbol: str) -> list[dict]:
         return []
 
 
-async def _procesar_par(sem, pool, par: dict, umbral_rango: float) -> str:
+async def _procesar_par(sem, pool, par: dict, umbral_rango: float,
+                        umbral_impulso: float = UMBRAL_IMPULSO_DEFAULT) -> str:
     """Trae velas de un par, las persiste y actualiza sus métricas."""
     async with sem:
         velas = await _traer_velas(par["exchange"], par["pair_symbol"])
@@ -134,7 +163,7 @@ async def _procesar_par(sem, pool, par: dict, umbral_rango: float) -> str:
     if not filas:
         return "sin_velas"
 
-    metricas = calcular_metricas(velas, umbral_rango)
+    metricas = calcular_metricas(velas, umbral_rango, umbral_impulso)
 
     async with pool.acquire() as conn:
         async with conn.transaction():
@@ -148,14 +177,17 @@ async def _procesar_par(sem, pool, par: dict, umbral_rango: float) -> str:
 
             await conn.execute("""
                 UPDATE pairs SET
-                    volatility_30d = $2,
-                    volatility_std = $3,
-                    range_days_pct = $4,
-                    candles_count  = $5,
-                    updated_at     = now()
+                    volatility_30d   = $2,
+                    volatility_std   = $3,
+                    range_days_pct   = $4,
+                    impulso_oh       = $5,
+                    impulso_dias_pct = $6,
+                    candles_count    = $7,
+                    updated_at       = now()
                 WHERE id = $1
             """, par["id"], metricas["volatility_30d"], metricas["volatility_std"],
-                 metricas["range_days_pct"], metricas["candles_count"])
+                 metricas["range_days_pct"], metricas["impulso_oh"],
+                 metricas["impulso_dias_pct"], metricas["candles_count"])
 
     return "ok"
 

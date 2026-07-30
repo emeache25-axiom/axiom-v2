@@ -28,6 +28,8 @@ _ORDEN = {
     "volatilidad": "p.volatility_30d",   # rango diario medio (principal)
     "desvio":      "p.volatility_std",   # desvío de retornos
     "repetible":   "p.range_days_pct",   # % días sobre umbral
+    "impulso":     "p.impulso_oh",       # promedio (high-open)/open
+    "impulso_rep": "p.impulso_dias_pct", # % días con impulso sobre umbral
     "spread":      "p.spread_pct",
     "velas":       "p.candles_count",
     "coin":        "c.name",
@@ -119,6 +121,8 @@ async def listar(
     max_spread: float = Query(0, description="Spread máximo en % (0 = sin filtro)"),
     min_volatilidad: float = Query(0, description="Rango diario promedio mínimo en %"),
     min_repetible: float = Query(0, description="% mínimo de días que superan el umbral de rango"),
+    min_impulso: float = Query(0, description="Impulso mínimo en % (subida desde la apertura)"),
+    min_impulso_rep: float = Query(0, description="% mínimo de días con impulso sobre umbral"),
     max_mcap: float = Query(0, description="Market cap máximo en USD (0 = sin filtro)"),
     supercat: str = Query("", description="Sector de la coin"),
     solo_con_info: bool = Query(False, description="Solo pares con coin identificada en CoinGecko"),
@@ -154,6 +158,10 @@ async def listar(
         where.append(f"p.volatility_30d >= {_arg(min_volatilidad)}")
     if min_repetible > 0:
         where.append(f"p.range_days_pct >= {_arg(min_repetible)}")
+    if min_impulso > 0:
+        where.append(f"p.impulso_oh >= {_arg(min_impulso)}")
+    if min_impulso_rep > 0:
+        where.append(f"p.impulso_dias_pct >= {_arg(min_impulso_rep)}")
     if solo_con_info:
         where.append("p.coin_id IS NOT NULL")
     if max_mcap > 0:
@@ -184,7 +192,8 @@ async def listar(
     sql = f"""
         SELECT p.id, p.exchange, p.pair_symbol, p.base, p.quote,
                p.last_price, p.volume_24h, p.change_24h, p.spread_pct,
-               p.volatility_30d, p.volatility_std, p.range_days_pct, p.candles_count,
+               p.volatility_30d, p.volatility_std, p.range_days_pct,
+               p.impulso_oh, p.impulso_dias_pct, p.candles_count,
                p.coin_id, c.name, c.rank, c.market_cap, c.supercat, c.image
         FROM pairs p
         LEFT JOIN coins c ON c.id = p.coin_id
@@ -223,6 +232,8 @@ async def listar(
             "volatilidad": _f(r["volatility_30d"]),      # rango diario medio (principal)
             "desvio": _f(r["volatility_std"]),           # desvío de retornos
             "dias_repetible_pct": _f(r["range_days_pct"]),  # % días sobre umbral
+            "impulso_pct":        _f(r["impulso_oh"]),      # promedio open→high
+            "impulso_dias_pct":   _f(r["impulso_dias_pct"]),
             "velas": r["candles_count"],
             # Info de la coin: presente si está en el catálogo de CoinGecko.
             # Muchos pares de MEXC/CoinEx no lo están (se conservan igual porque

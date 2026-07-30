@@ -283,11 +283,17 @@ registro_widgets.registrar(Widget(
         # falta: hay pantalla de sobra.
         "amplio":   Densidad(hasta=None, campos=(
             "par", "exchange", "precio", "volumen", "cambio",
-            "volatilidad", "desvio", "repetible", "spread", "velas", "coin")),
+            "volatilidad", "repetible", "impulso", "impulso_rep",
+            "spread", "velas", "coin")),
     },
 
     ordenable_por=("par", "exchange", "precio", "volumen", "cambio",
-                   "volatilidad", "desvio", "repetible", "spread", "velas", "coin"),
-    metricas=("volatilidad", "desvio", "repetible", "spread"),
-    metricas_pref=("volatilidad", "spread", "repetible", "desvio"),
+                   "volatilidad", "desvio", "repetible", "impulso",
+                   "impulso_rep", "spread", "velas", "coin"),
+    metricas=("volatilidad", "desvio", "repetible", "impulso",
+              "impulso_rep", "spread"),
+    # Orden de preferencia para llenar los slots libres: primero el rango
+    # (la métrica principal), después el spread (define si el trade es viable).
+    metricas_pref=("volatilidad", "spread", "impulso", "repetible",
+                   "impulso_rep", "desvio"),
 ))

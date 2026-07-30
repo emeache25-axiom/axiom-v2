@@ -30,6 +30,8 @@ _ORDEN_SQL = {
     "volatilidad": "p.volatility_30d",
     "desvio":      "p.volatility_std",
     "repetible":   "p.range_days_pct",
+    "impulso":     "p.impulso_oh",
+    "impulso_rep": "p.impulso_dias_pct",
     "spread":      "p.spread_pct",
     "velas":       "p.candles_count",
     "coin":        "c.name",
@@ -50,8 +52,9 @@ _DIR_DEFAULT = {
         "moneda de cotización, exchange, volumen, volatilidad, repetibilidad, "
         "spread y capitalización de la coin. Ordenable por cualquiera de esas "
         "métricas. Es la herramienta indicada para encontrar pares que oscilan "
-        "de forma repetible (range trading), pares con spread bajo, o pares de "
-        "baja capitalización contra BTC. Trabaja sobre PARES OPERABLES, no "
+        "de forma repetible (range trading), pares que suben desde la apertura "
+        "(impulso), pares con spread bajo, o pares de baja capitalización "
+        "contra BTC. Trabaja sobre PARES OPERABLES, no "
         "sobre coins: un mismo activo puede aparecer en varios exchanges."
     ),
     entidad="sistema",
@@ -60,14 +63,17 @@ _DIR_DEFAULT = {
     devuelve=(
         "lista de pares con exchange, símbolo del par, precio, volumen 24h, "
         "variación 24h, las tres métricas de volatilidad (rango diario "
-        "promedio, desvío de retornos, % de días sobre umbral), spread, "
+        "promedio, desvío de retornos, % de días sobre umbral), las dos de "
+        "impulso (promedio open→high y % de días con impulso), spread, "
         "cantidad de velas, y datos de la coin si está identificada"
     ),
     mide=(
         "volumen 24h en USD y precio del ticker del exchange (refrescado cada "
         "15 min); rango diario promedio (high−low)/low % sobre las últimas 30 "
         "velas diarias; desvío estándar de los retornos diarios %; porcentaje "
-        "de días cuyo rango superó el 3%; spread (ask−bid)/mid % del libro"
+        "de días cuyo rango superó el 3%; el impulso promedio "
+        "(high−open)/open % —cuánto sube desde la apertura hasta el máximo— y "
+        "el % de días con impulso sobre 1,5%; spread (ask−bid)/mid % del libro"
     ),
     infiere=(
         "nada — entrega métricas medidas, no lecturas. Ordenar por una métrica "
@@ -104,6 +110,13 @@ _DIR_DEFAULT = {
         Param("min_repetible", float,
               "Porcentaje mínimo de días que superan el umbral de rango "
               "(ej. 80 = osciló fuerte el 80% de los días)."),
+        Param("min_impulso", float,
+              "Impulso mínimo en %: cuánto sube en promedio desde la apertura "
+              "hasta el máximo del día. A diferencia del rango, mide solo el "
+              "tramo alcista."),
+        Param("min_impulso_rep", float,
+              "Porcentaje mínimo de días con impulso sobre el umbral "
+              "(ej. 70 = subió desde la apertura el 70% de los días)."),
         Param("max_spread", float,
               "Spread máximo en % (ej. 0.05). Crítico para operar en rangos chicos."),
         Param("max_mcap", float,
@@ -120,6 +133,7 @@ _DIR_DEFAULT = {
 )
 async def buscar_pares(pool, quote=None, exchange=None, min_volumen=1000.0,
                        min_volatilidad=None, min_repetible=None, max_spread=None,
+                       min_impulso=None, min_impulso_rep=None,
                        max_mcap=None, solo_con_info=False,
                        orden="volumen", dir=None, limit=20) -> dict:
     """Screener sobre el universo de pares tradeables."""
@@ -141,6 +155,10 @@ async def buscar_pares(pool, quote=None, exchange=None, min_volumen=1000.0,
         where.append(f"p.range_days_pct >= {_arg(float(min_repetible))}")
     if max_spread:
         where.append(f"p.spread_pct <= {_arg(float(max_spread))}")
+    if min_impulso:
+        where.append(f"p.impulso_oh >= {_arg(float(min_impulso))}")
+    if min_impulso_rep:
+        where.append(f"p.impulso_dias_pct >= {_arg(float(min_impulso_rep))}")
     if max_mcap:
         where.append(f"(c.market_cap IS NULL OR c.market_cap <= {_arg(float(max_mcap))})")
     if solo_con_info:
@@ -156,6 +174,7 @@ async def buscar_pares(pool, quote=None, exchange=None, min_volumen=1000.0,
         SELECT p.exchange, p.pair_symbol, p.base, p.quote,
                p.last_price, p.volume_24h, p.change_24h, p.spread_pct,
                p.volatility_30d, p.volatility_std, p.range_days_pct,
+               p.impulso_oh, p.impulso_dias_pct,
                p.candles_count, p.coin_id, c.name, c.rank, c.market_cap, c.supercat
         FROM pairs p
         LEFT JOIN coins c ON c.id = p.coin_id
@@ -181,6 +200,8 @@ async def buscar_pares(pool, quote=None, exchange=None, min_volumen=1000.0,
         "rango_diario_pct":   _f(r["volatility_30d"]),
         "desvio_retornos_pct": _f(r["volatility_std"]),
         "dias_repetible_pct": _f(r["range_days_pct"]),
+        "impulso_pct":        _f(r["impulso_oh"]),
+        "impulso_dias_pct":   _f(r["impulso_dias_pct"]),
         "velas":       r["candles_count"],
         "coin": {
             "id": r["coin_id"], "nombre": r["name"], "rank": r["rank"],
