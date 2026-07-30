@@ -6,12 +6,9 @@ const WatchlistScreen = {
   items:        [],
   pollInterval: null,
   POLL_MS:      15000,
-  activeTab:    'list',   // 'list' | 'suggested' | 'screener'
+  activeTab:    'list',   // 'list' | 'suggested'
 
   // Screener state
-  screenerFilters: { supercat:'', min_change:-999, max_change:999, sort_by:'rank', sort_dir:'asc' },
-  screenerData:    [],
-  screenerLoading: false,
 
   // ── Ciclo de vida ──────────────────────────────────────────────────────────
   async onEnter() {
@@ -37,7 +34,7 @@ const WatchlistScreen = {
   // ── Tabs ──────────────────────────────────────────────────────────────────
   _switchTab(tab) {
     this.activeTab = tab;
-    ['list','suggested','screener'].forEach(t => {
+    ['list','suggested'].forEach(t => {
       const btn   = document.getElementById(`wl-tab-${t}`);
       const panel = document.getElementById(`wl-panel-${t}`);
       const active = t === tab;
@@ -55,8 +52,6 @@ const WatchlistScreen = {
       this._startPolling();
     } else if (tab === 'suggested') {
       this._loadSuggested();
-    } else if (tab === 'screener') {
-      this._loadScreener();
     }
   },
 
@@ -235,519 +230,22 @@ const WatchlistScreen = {
     }
   },
 
-  // ── Tab Screener ───────────────────────────────────────────────────────────
-  async _loadScreener() {
-    const panel = document.getElementById('wl-panel-screener');
-    if (!panel) return;
-    if (!panel.querySelector('.screener-content')) {
-      panel.innerHTML = this._renderScreenerShell();
-    }
-    await this._runScreener();
-  },
-
-  _renderScreenerShell() {
-    const supercats = [
-      ['', 'Todas'],
-      ['bitcoin','Bitcoin'], ['smart_platforms','Smart Platforms'],
-      ['layer2','Layer 2'],  ['stablecoins','Stablecoins'],
-      ['defi','DeFi'],       ['rwa','RWA'],
-      ['exchange','Exchange Tokens'], ['ai','AI'],
-      ['memes','Memes'],     ['gaming','Gaming & NFT'],
-      ['privacy','Privacy'], ['infrastructure','Infrastructure'],
-      ['desoc','DeSoc & Web3'], ['staking','Staking & Liquid'],
-      ['payments','Payments'], ['political','Political'],
-    ];
-
-    return `
-    <div class="screener-content">
-
-      <!-- Selector de tipo de screener -->
-      <div style="display:flex;gap:8px;margin-bottom:14px;">
-        <button id="sc-type-basic"
-          onclick="WatchlistScreen._switchScreenerType('basic')"
-          style="display:flex;align-items:center;gap:6px;padding:7px 14px;
-                 border-radius:var(--radius-s);border:0.5px solid var(--cy);
-                 background:var(--cy);color:#0F0E0D;font-size:12px;
-                 font-weight:600;cursor:pointer;transition:all .15s;">
-          <i class="ti ti-adjustments-horizontal" style="font-size:13px;"></i>
-          Filtros básicos
-        </button>
-        <button onclick="Router.go('pairs')" title="El screener de volatilidad ahora opera sobre pares tradeables"
-          style="display:flex;align-items:center;gap:6px;padding:7px 14px;
-                 border-radius:var(--radius-s);border:0.5px dashed var(--w1);
-                 background:transparent;color:var(--t3);font-size:12px;
-                 cursor:pointer;transition:all .15s;">
-          <i class="ti ti-arrows-exchange" style="font-size:13px;"></i>
-          Volatilidad → ver en Pares
-        </button>
-        <button id="sc-type-open_high"
-          onclick="WatchlistScreen._switchScreenerType('open_high')"
-          style="display:flex;align-items:center;gap:6px;padding:7px 14px;
-                 border-radius:var(--radius-s);border:0.5px solid var(--w1);
-                 background:transparent;color:var(--t3);font-size:12px;
-                 cursor:pointer;transition:all .15s;">
-          <i class="ti ti-trending-up" style="font-size:13px;"></i>
-          Impulso open→high
-        </button>
-      </div>
-
-      <!-- Filtros básicos -->
-      <div id="sc-filters-basic">
-        <div class="card" style="padding:14px 16px;margin-bottom:14px;border:0.5px solid var(--w1);">
-          <div style="display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px;">
-            <div>
-              <div style="font-family:var(--f2);font-size:9px;color:var(--t3);
-                          text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px;">Categoría</div>
-              <select id="sc-supercat" onchange="WatchlistScreen._onFilterChange()"
-                style="padding:6px 10px;border-radius:var(--radius-s);border:0.5px solid var(--w1);
-                       background:var(--c2);color:var(--t1);font-size:12px;cursor:pointer;min-width:140px;">
-                ${supercats.map(([v,l]) => `<option value="${v}">${l}</option>`).join('')}
-              </select>
-            </div>
-            <div>
-              <div style="font-family:var(--f2);font-size:9px;color:var(--t3);
-                          text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px;">Cambio 24h (%)</div>
-              <div style="display:flex;align-items:center;gap:6px;">
-                <input id="sc-min-change" type="number" placeholder="Min" step="1"
-                  onchange="WatchlistScreen._onFilterChange()"
-                  style="width:64px;padding:5px 8px;border-radius:var(--radius-s);
-                         border:0.5px solid var(--w1);background:var(--c2);
-                         color:var(--t1);font-size:12px;text-align:center;">
-                <span style="color:var(--t3);font-size:11px;">a</span>
-                <input id="sc-max-change" type="number" placeholder="Max" step="1"
-                  onchange="WatchlistScreen._onFilterChange()"
-                  style="width:64px;padding:5px 8px;border-radius:var(--radius-s);
-                         border:0.5px solid var(--w1);background:var(--c2);
-                         color:var(--t1);font-size:12px;text-align:center;">
-              </div>
-            </div>
-            <div>
-              <div style="font-family:var(--f2);font-size:9px;color:var(--t3);
-                          text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px;">Ordenar por</div>
-              <div style="display:flex;gap:6px;">
-                <select id="sc-sort-by" onchange="WatchlistScreen._onFilterChange()"
-                  style="padding:6px 10px;border-radius:var(--radius-s);border:0.5px solid var(--w1);
-                         background:var(--c2);color:var(--t1);font-size:12px;cursor:pointer;">
-                  <option value="rank">Rank</option>
-                  <option value="change_24h">Cambio 24h</option>
-                  <option value="change_7d">Cambio 7d</option>
-                  <option value="volume_24h">Volumen</option>
-                  <option value="market_cap">Market Cap</option>
-                </select>
-                <select id="sc-sort-dir" onchange="WatchlistScreen._onFilterChange()"
-                  style="padding:6px 8px;border-radius:var(--radius-s);border:0.5px solid var(--w1);
-                         background:var(--c2);color:var(--t1);font-size:12px;cursor:pointer;">
-                  <option value="asc">↑ ASC</option>
-                  <option value="desc">↓ DESC</option>
-                </select>
-              </div>
-            </div>
-            <div style="display:flex;gap:6px;margin-left:auto;">
-              <button onclick="WatchlistScreen._resetScreener()"
-                style="padding:6px 12px;border-radius:var(--radius-s);border:0.5px solid var(--w1);
-                       background:transparent;color:var(--t3);font-size:12px;cursor:pointer;">
-                Reset
-              </button>
-              <button onclick="WatchlistScreen._runScreener()"
-                style="padding:6px 14px;border-radius:var(--radius-s);border:none;
-                       background:var(--cy);color:#0F0E0D;font-size:12px;font-weight:600;cursor:pointer;">
-                <i class="ti ti-search"></i> Filtrar
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Filtros volatilidad -->
-      <div id="sc-filters-open_high" style="display:none;">
-        <div class="card" style="padding:14px 16px;margin-bottom:14px;
-                                  border:0.5px solid var(--w1);
-                                  border-left:3px solid #56A14F;">
-          <div style="margin-bottom:10px;">
-            <div style="font-size:12px;color:var(--t2);line-height:1.5;">
-              <i class="ti ti-info-circle" style="color:#56A14F;"></i>
-              Encuentra coins donde al menos <strong style="color:var(--t1);">X% de las velas diarias</strong>
-              en los últimos 30 días tienen un movimiento
-              <strong style="color:var(--t1);">(high-open)/open ≥ Y%</strong>.
-              Identifica activos que consistentemente impulsan hacia arriba desde la apertura.
-            </div>
-          </div>
-          <div style="display:flex;flex-wrap:wrap;align-items:flex-end;gap:16px;">
-            <div>
-              <div style="font-family:var(--f2);font-size:9px;color:var(--t3);
-                          text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px;">
-                Impulso mínimo open→high (%)
-              </div>
-              <div style="display:flex;align-items:center;gap:8px;">
-                <input id="sc-oh-min-range" type="number" value="1" min="0.1" max="20" step="0.1"
-                  style="width:72px;padding:6px 8px;border-radius:var(--radius-s);
-                         border:0.5px solid var(--w1);background:var(--c2);
-                         color:var(--t1);font-size:13px;font-weight:600;text-align:center;">
-                <span style="font-size:12px;color:var(--t3);">%</span>
-              </div>
-            </div>
-            <div>
-              <div style="font-family:var(--f2);font-size:9px;color:var(--t3);
-                          text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px;">
-                Mínimo velas que cumplen (%)
-              </div>
-              <div style="display:flex;align-items:center;gap:8px;">
-                <input id="sc-oh-min-pct" type="number" value="80" min="50" max="100" step="5"
-                  style="width:72px;padding:6px 8px;border-radius:var(--radius-s);
-                         border:0.5px solid var(--w1);background:var(--c2);
-                         color:var(--t1);font-size:13px;font-weight:600;text-align:center;">
-                <span style="font-size:12px;color:var(--t3);">%</span>
-              </div>
-            </div>
-            <div>
-              <div style="font-family:var(--f2);font-size:9px;color:var(--t3);
-                          text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px;">Categoría</div>
-              <select id="sc-oh-supercat"
-                style="padding:6px 10px;border-radius:var(--radius-s);border:0.5px solid var(--w1);
-                       background:var(--c2);color:var(--t1);font-size:12px;cursor:pointer;min-width:130px;">
-                ${supercats.map(([v,l]) => `<option value="${v}">${l}</option>`).join('')}
-              </select>
-            </div>
-            <div>
-              <div style="font-family:var(--f2);font-size:9px;color:var(--t3);
-                          text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px;">Ordenar por</div>
-              <select id="sc-oh-sort-by"
-                style="padding:6px 10px;border-radius:var(--radius-s);border:0.5px solid var(--w1);
-                       background:var(--c2);color:var(--t1);font-size:12px;cursor:pointer;">
-                <option value="avg_oh_pct">Impulso promedio</option>
-                <option value="pct_velas_ok">% velas OK</option>
-                <option value="rank">Rank</option>
-                <option value="volume_24h">Volumen</option>
-              </select>
-            </div>
-            <div style="display:flex;gap:6px;margin-left:auto;">
-              <button onclick="WatchlistScreen._runScreener()"
-                style="padding:6px 14px;border-radius:var(--radius-s);border:none;
-                       background:#56A14F;color:#fff;font-size:12px;font-weight:600;cursor:pointer;">
-                <i class="ti ti-trending-up"></i> Screenear
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Resultados -->
-      <div id="sc-results"></div>
-    </div>`;
-  },
-
-  _screenerType: 'basic',
-
-  _switchScreenerType(type) {
-    this._screenerType = type;
-
-    // Config por tipo: [color activo, color texto activo]
-    const typeConfig = {
-      'basic':      ['var(--cy)', '#0F0E0D'],
-      'open_high':  ['#56A14F',  '#fff'],
-    };
-
-    // Resetear todos los botones
-    ['basic','open_high'].forEach(t => {
-      const btn = document.getElementById(`sc-type-${t}`);
-      if (!btn) return;
-      const isActive = t === type;
-      const [bg, col] = typeConfig[t];
-      btn.style.background  = isActive ? bg          : 'transparent';
-      btn.style.color       = isActive ? col         : 'var(--t3)';
-      btn.style.borderColor = isActive ? bg          : 'var(--w1)';
-      btn.style.fontWeight  = isActive ? '600'       : '400';
-    });
-
-    // Mostrar/ocultar paneles de filtros
-    ['basic','open_high'].forEach(t => {
-      const panel = document.getElementById(`sc-filters-${t}`);
-      if (panel) panel.style.display = t === type ? 'block' : 'none';
-    });
-
-    // Cargar resultados automáticamente
-    this._runScreener();
-  },
-
-  _onFilterChange() {
-    const supercat   = document.getElementById('sc-supercat')?.value   || '';
-    const minChange  = parseFloat(document.getElementById('sc-min-change')?.value) || -999;
-    const maxChange  = parseFloat(document.getElementById('sc-max-change')?.value) || 999;
-    const sortBy     = document.getElementById('sc-sort-by')?.value    || 'rank';
-    const sortDir    = document.getElementById('sc-sort-dir')?.value   || 'asc';
-    this.screenerFilters = { supercat, min_change: minChange, max_change: maxChange,
-                             sort_by: sortBy, sort_dir: sortDir };
-  },
-
-  _resetScreener() {
-    this.screenerFilters = { supercat:'', min_change:-999, max_change:999, sort_by:'rank', sort_dir:'asc' };
-    const el = id => document.getElementById(id);
-    if (el('sc-supercat'))   el('sc-supercat').value   = '';
-    if (el('sc-min-change')) el('sc-min-change').value  = '';
-    if (el('sc-max-change')) el('sc-max-change').value  = '';
-    if (el('sc-sort-by'))    el('sc-sort-by').value     = 'rank';
-    if (el('sc-sort-dir'))   el('sc-sort-dir').value    = 'asc';
-    this._runScreener();
-  },
-
-  async _runScreener() {
-    if (this.screenerLoading) return;
-    this.screenerLoading = true;
-
-    const resultsEl = document.getElementById('sc-results');
-    if (!resultsEl) { this.screenerLoading = false; return; }
-
-    resultsEl.innerHTML = `<div style="padding:24px;text-align:center;color:var(--t3);font-size:13px;">
-      <i class="ti ti-refresh"></i> Buscando...</div>`;
-    try {
-      let params = { limit: 100 };
-
-      if (this._screenerType === 'open_high') {
-        const minRange = parseFloat(document.getElementById('sc-oh-min-range')?.value) || 1;
-        const minPct   = parseFloat(document.getElementById('sc-oh-min-pct')?.value)   || 80;
-        const supercat = document.getElementById('sc-oh-supercat')?.value || '';
-        const sortBy   = document.getElementById('sc-oh-sort-by')?.value  || 'avg_oh_pct';
-        params = { type: 'open_high', min_range: minRange, min_pct_ok: minPct,
-                   sort_by: sortBy, sort_dir: 'desc', limit: 100 };
-        if (supercat) params.supercat = supercat;
-      } else {
-        this._onFilterChange();
-        params = { ...this.screenerFilters, type: 'basic', limit: 100 };
-        if (params.min_change === -999) delete params.min_change;
-        if (params.max_change ===  999) delete params.max_change;
-        if (!params.supercat) delete params.supercat;
-      }
-
-      const data = await API.getScreener(params);
-      if (this._screenerType === 'open_high') {
-        resultsEl.innerHTML = this._renderOpenHighResults(data);
-      } else {
-        resultsEl.innerHTML = this._renderScreenerResults(data);
-      }
-    } catch(e) {
-      resultsEl.innerHTML = `<div style="padding:20px;color:var(--re);font-size:13px;">Error al filtrar</div>`;
-    } finally {
-      this.screenerLoading = false;
-    }
-  },
-
-  _renderScreenerResults(data) {
-    if (!data.results.length) {
-      return `<div style="padding:40px;text-align:center;color:var(--t3);font-size:13px;">
-        <i class="ti ti-filter-off" style="font-size:28px;display:block;margin-bottom:8px;"></i>
-        Sin resultados con esos filtros</div>`;
-    }
-
-    const rows = data.results.map(c => `
-    <div style="display:grid;
-                grid-template-columns:32px 1fr 90px 70px 70px 90px 90px 80px;
-                gap:8px;padding:8px 14px;border-bottom:0.5px solid var(--w1);
-                align-items:center;">
-      <!-- Rank -->
-      <div style="font-family:var(--f2);font-size:10px;color:var(--t4);text-align:center;">
-        ${c.rank ?? '—'}
-      </div>
-      <!-- Activo -->
-      <div style="display:flex;align-items:center;gap:8px;min-width:0;">
-        ${c.image
-          ? `<img src="${c.image}" style="width:24px;height:24px;border-radius:50%;flex-shrink:0;">`
-          : `<div style="width:24px;height:24px;border-radius:50%;background:var(--c3);
-               display:flex;align-items:center;justify-content:center;
-               font-size:8px;font-family:var(--f2);color:var(--t2);">${c.symbol.slice(0,4)}</div>`}
-        <div style="min-width:0;">
-          <div style="font-size:13px;font-weight:500;color:var(--t1);
-                      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${c.name}</div>
-          <div style="font-family:var(--f2);font-size:10px;color:var(--t3);">${c.symbol}</div>
-        </div>
-      </div>
-      <!-- Precio -->
-      <div style="font-family:var(--f2);font-size:12px;color:var(--t1);text-align:right;">
-        ${this._price(c.price)}
-      </div>
-      <!-- 24h -->
-      <div style="font-family:var(--f2);font-size:12px;font-weight:600;
-                  text-align:right;color:${this._chgColor(c.change_24h)};">
-        ${c.change_24h != null ? `${c.change_24h > 0 ? '+' : ''}${c.change_24h.toFixed(2)}%` : '—'}
-      </div>
-      <!-- 7d -->
-      <div style="font-family:var(--f2);font-size:12px;font-weight:600;
-                  text-align:right;color:${this._chgColor(c.change_7d)};">
-        ${c.change_7d != null ? `${c.change_7d > 0 ? '+' : ''}${c.change_7d.toFixed(2)}%` : '—'}
-      </div>
-      <!-- Vol -->
-      <div style="font-family:var(--f2);font-size:11px;color:var(--t3);text-align:right;">
-        ${this._fmt(c.volume_24h)}
-      </div>
-      <!-- Mcap -->
-      <div style="font-family:var(--f2);font-size:11px;color:var(--t3);text-align:right;">
-        ${this._fmt(c.market_cap)}
-      </div>
-      <!-- Acción -->
-      <div style="text-align:center;">
-        <button onclick="WatchlistScreen._quickAdd('${c.id}','${c.name}','${c.symbol}')"
-          title="Agregar a watchlist"
-          style="border:0.5px solid var(--cy);background:var(--cyg);color:var(--cy);
-                 border-radius:4px;padding:3px 9px;font-size:11px;cursor:pointer;">
-          <i class="ti ti-plus"></i>
-        </button>
-      </div>
-    </div>`).join('');
-
-    return `
-    <div class="card" style="padding:0;overflow:hidden;border:0.5px solid var(--w1);">
-      <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;
-                  border-bottom:1px solid var(--w1);">
-        <i class="ti ti-filter" style="color:var(--cy);font-size:14px;"></i>
-        <span style="font-size:13px;font-weight:600;color:var(--t1);">Resultados</span>
-        <span style="font-family:var(--f2);font-size:10px;color:var(--t3);margin-left:auto;">
-          ${data.total} coins
-        </span>
-      </div>
-      <!-- Header columnas -->
-      <div style="display:grid;
-                  grid-template-columns:32px 1fr 90px 70px 70px 90px 90px 80px;
-                  gap:8px;padding:7px 14px;border-bottom:0.5px solid var(--w1);
-                  font-family:var(--f2);font-size:9px;color:var(--t4);
-                  text-transform:uppercase;letter-spacing:.1em;">
-        <span>#</span>
-        <span>Activo</span>
-        <span style="text-align:right;">Precio</span>
-        <span style="text-align:right;">24h</span>
-        <span style="text-align:right;">7d</span>
-        <span style="text-align:right;">Vol 24h</span>
-        <span style="text-align:right;">Mcap</span>
-        <span style="text-align:center;">+Watch</span>
-      </div>
-      ${rows}
-    </div>`;
-  },
-
-  // _renderVolatilityResults se eliminó el 30/07/2026.
+  // ── Tab Screener: ELIMINADO (30/07/2026) ──────────────────────────────────
   //
-  // El screener de volatilidad estructural operaba sobre `ohlcv_daily` (velas
-  // de la coin en USD), tabla que se eliminó al migrar el universo a PARES
-  // tradeables. Su reemplazo es el screener de pares —/api/pairs/ y la pantalla
-  // Pares—, que mide lo mismo sobre el par que se va a operar y no sobre un
-  // promedio agregado de todos los mercados.
+  // Tenía dos modos, y los dos quedaron redundantes:
   //
-  // El botón seguía visible en la interfaz llamando a un modo que el backend ya
-  // no soportaba: caía en el screener básico y se renderizaba con el formato
-  // equivocado.
-
-  _renderOpenHighResults(data) {
-    if (!data.results || !data.results.length) {
-      return `<div style="padding:40px;text-align:center;color:var(--t3);font-size:13px;">
-        <i class="ti ti-trending-up" style="font-size:28px;display:block;margin-bottom:8px;color:var(--t4);"></i>
-        Sin resultados — probá con un impulso menor o menos % de velas requeridas
-      </div>`;
-    }
-
-    const rows = data.results.map(c => {
-      const pct      = c.pct_velas_ok || 0;
-      const avg      = c.avg_oh_pct   || 0;
-      const barW     = Math.min(pct, 100);
-      const barColor = pct >= 90 ? '#56A14F' : pct >= 80 ? '#B47514' : '#D86326';
-      return `
-      <div style="display:grid;
-                  grid-template-columns:32px 1fr 90px 70px 70px 80px 120px 110px 80px;
-                  gap:8px;padding:9px 14px;border-bottom:0.5px solid var(--w1);
-                  align-items:center;">
-        <div style="font-family:var(--f2);font-size:10px;color:var(--t4);text-align:center;">
-          ${c.rank ?? '—'}
-        </div>
-        <div style="display:flex;align-items:center;gap:8px;min-width:0;">
-          ${c.image
-            ? `<img src="${c.image}" style="width:24px;height:24px;border-radius:50%;flex-shrink:0;">`
-            : `<div style="width:24px;height:24px;border-radius:50%;background:var(--c3);
-                 display:flex;align-items:center;justify-content:center;
-                 font-size:8px;font-family:var(--f2);color:var(--t2);">${c.symbol.slice(0,4)}</div>`}
-          <div style="min-width:0;">
-            <div style="font-size:13px;font-weight:500;color:var(--t1);
-                        white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${c.name}</div>
-            <div style="font-family:var(--f2);font-size:10px;color:var(--t3);">${c.symbol}</div>
-          </div>
-        </div>
-        <div style="font-family:var(--f2);font-size:12px;color:var(--t1);text-align:right;">
-          ${this._price(c.price)}
-        </div>
-        <div style="font-family:var(--f2);font-size:12px;font-weight:600;
-                    text-align:right;color:${this._chgColor(c.change_24h)};">
-          ${c.change_24h != null ? `${c.change_24h > 0 ? '+' : ''}${c.change_24h.toFixed(2)}%` : '—'}
-        </div>
-        <div style="font-family:var(--f2);font-size:12px;font-weight:600;
-                    text-align:right;color:${this._chgColor(c.change_7d)};">
-          ${c.change_7d != null ? `${c.change_7d > 0 ? '+' : ''}${c.change_7d.toFixed(2)}%` : '—'}
-        </div>
-        <div style="font-family:var(--f2);font-size:11px;color:var(--t3);text-align:right;">
-          ${this._fmt(c.volume_24h)}
-        </div>
-        <!-- Impulso open→high promedio -->
-        <div style="text-align:right;">
-          <div style="font-family:var(--f2);font-size:12px;font-weight:700;color:#56A14F;">
-            +${avg.toFixed(2)}%
-          </div>
-          <div style="font-family:var(--f2);font-size:9px;color:var(--t4);">open→high avg</div>
-        </div>
-        <!-- % velas OK con barra -->
-        <div>
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px;">
-            <span style="font-family:var(--f2);font-size:11px;font-weight:600;color:${barColor};">
-              ${pct.toFixed(1)}%
-            </span>
-            <span style="font-family:var(--f2);font-size:9px;color:var(--t4);">
-              ${c.velas_ok}/${c.total_velas}
-            </span>
-          </div>
-          <div style="height:3px;background:var(--c3);border-radius:2px;overflow:hidden;">
-            <div style="height:100%;width:${barW}%;background:${barColor};border-radius:2px;"></div>
-          </div>
-        </div>
-        <div style="text-align:center;">
-          <button onclick="WatchlistScreen._quickAdd('${c.id}','${c.name}','${c.symbol}')"
-            title="Agregar a watchlist"
-            style="border:0.5px solid var(--cy);background:var(--cyg);color:var(--cy);
-                   border-radius:4px;padding:3px 9px;font-size:11px;cursor:pointer;">
-            <i class="ti ti-plus"></i>
-          </button>
-        </div>
-      </div>`;
-    }).join('');
-
-    return `
-    <div class="card" style="padding:0;overflow:hidden;
-                              border-top:2px solid #56A14F;
-                              border-left:1px solid #56A14F40;
-                              border-right:1px solid #56A14F40;
-                              border-bottom:1px solid #56A14F40;">
-      <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;
-                  border-bottom:1px solid var(--w1);">
-        <i class="ti ti-trending-up" style="color:#56A14F;font-size:14px;"></i>
-        <span style="font-size:13px;font-weight:600;color:var(--t1);">Impulso Open → High</span>
-        <span style="font-family:var(--f2);font-size:10px;color:var(--t3);">
-          (high-open)/open ≥ ${data.params?.min_range}% · ${data.params?.min_pct_ok}% velas · 30 días
-        </span>
-        <span style="font-family:var(--f2);font-size:10px;color:var(--t3);margin-left:auto;">
-          ${data.total} coins
-        </span>
-      </div>
-      <div style="display:grid;
-                  grid-template-columns:32px 1fr 90px 70px 70px 80px 120px 110px 80px;
-                  gap:8px;padding:7px 14px;border-bottom:0.5px solid var(--w1);
-                  font-family:var(--f2);font-size:9px;color:var(--t4);
-                  text-transform:uppercase;letter-spacing:.1em;">
-        <span>#</span>
-        <span>Activo</span>
-        <span style="text-align:right;">Precio</span>
-        <span style="text-align:right;">24h</span>
-        <span style="text-align:right;">7d</span>
-        <span style="text-align:right;">Vol 24h</span>
-        <span style="text-align:right;">Impulso avg</span>
-        <span>% Velas OK</span>
-        <span style="text-align:center;">+Watch</span>
-      </div>
-      ${rows}
-    </div>`;
-  },
+  //   · BASIC filtraba COINS del catálogo de CoinGecko por sector y variación.
+  //     Es el universo viejo: AXIOM opera sobre PARES tradeables, y filtrar
+  //     coins que quizá no se pueden comprar dejó de tener sentido. Lo que sí
+  //     cubre —ver el mercado por sector— está en `mapa_sectores` y `top_coins`.
+  //
+  //   · OPEN→HIGH medía cuánto sube un activo desde la apertura hasta el
+  //     máximo del día. Esa métrica se incorporó al screener de PARES como
+  //     `impulso_oh` e `impulso_dias_pct` (migración 006), calculada sobre el
+  //     par que se va a operar en vez de sobre el precio agregado en USD.
+  //
+  // El screener vive ahora en la pantalla Pares, con más métricas y sobre el
+  // universo correcto.
 
   // ── Shell principal con tabs ───────────────────────────────────────────────
   _renderShell() {
@@ -792,13 +290,14 @@ const WatchlistScreen = {
                  border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .15s;">
           <i class="ti ti-star" style="font-size:13px;"></i> Coins sugeridas
         </button>
-        <button id="wl-tab-screener"
-          onclick="WatchlistScreen._switchTab('screener')"
+        <button onclick="Router.go('pairs')"
+          title="El screener ahora opera sobre pares tradeables"
           style="display:flex;align-items:center;gap:6px;padding:8px 16px;
                  border:none;background:transparent;cursor:pointer;
                  font-size:13px;font-weight:500;color:var(--t3);
-                 border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .15s;">
-          <i class="ti ti-filter" style="font-size:13px;"></i> Screener
+                 border-bottom:2px solid transparent;margin-bottom:-1px;
+                 transition:all .15s;">
+          <i class="ti ti-arrows-exchange" style="font-size:13px;"></i> Screener → Pares
         </button>
       </div>
 
@@ -828,8 +327,6 @@ const WatchlistScreen = {
       <!-- Panel: Coins sugeridas -->
       <div id="wl-panel-suggested" style="display:none;"></div>
 
-      <!-- Panel: Screener -->
-      <div id="wl-panel-screener" style="display:none;"></div>
 
       <!-- Modal genérico: confirm / alert / edit -->
       <div id="wl-dialog" style="display:none;position:fixed;inset:0;z-index:600;
