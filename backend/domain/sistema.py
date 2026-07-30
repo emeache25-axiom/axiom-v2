@@ -17,17 +17,30 @@ from backend.domain.registry import capacidad, Param
 logger = logging.getLogger(__name__)
 
 
-# Columnas por las que se puede ordenar. Espejo de _ORDEN en backend/api/pairs.py
+# Columnas por las que se puede ordenar. Espejo de _ORDEN en backend/api/pairs.py:
+# el widget de la tabla ofrece ordenar por cualquier columna visible, así que
+# ambas fuentes tienen que aceptar el mismo conjunto. Si divergen, ordenar por
+# una columna desde el chat falla con 400.
 _ORDEN_SQL = {
+    "par":         "p.pair_symbol",
+    "exchange":    "p.exchange",
+    "precio":      "p.last_price",
     "volumen":     "p.volume_24h",
+    "cambio":      "p.change_24h",
     "volatilidad": "p.volatility_30d",
     "desvio":      "p.volatility_std",
     "repetible":   "p.range_days_pct",
     "spread":      "p.spread_pct",
-    "cambio":      "p.change_24h",
+    "velas":       "p.candles_count",
+    "coin":        "c.name",
     "rank":        "c.rank",
 }
-_DIR_DEFAULT = {"spread": "asc", "rank": "asc"}
+# Sentido por defecto: texto ascendente, métricas descendente, spread y rank
+# ascendente (menos es mejor).
+_DIR_DEFAULT = {
+    "par": "asc", "exchange": "asc", "coin": "asc",
+    "spread": "asc", "rank": "asc",
+}
 
 
 @capacidad(

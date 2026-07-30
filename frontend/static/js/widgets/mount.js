@@ -44,6 +44,9 @@
     async mount(el, widgetId, opts = {}) {
       if (!el) { console.error('[widgets] contenedor nulo'); return null; }
 
+      // Las declaraciones viven en el backend: hay que tenerlas antes de montar.
+      if (!Reg.listo) { this._pintarCargando(el); await Reg.cargar(); }
+
       const def = Reg.get(widgetId);
       if (!def) { console.error('[widgets] no registrado:', widgetId); return null; }
 
@@ -109,6 +112,8 @@
     async refiltrar(el, args) {
       const inst = _montados.get(el);
       if (!inst || !inst.def.capacidad) return;
+
+      const argsPrevios = Object.assign({}, inst.args);
       Object.assign(inst.args, args || {});
       try {
         const r = await this._pedirDatos(inst.def.capacidad, inst.args);
@@ -116,8 +121,24 @@
         inst.epistemico = r.epistemico;
         this._render(inst);
       } catch (e) {
-        this._pintarError(inst.el, e.message);
+        // Un refiltrado fallido NO debe destruir lo que ya se estaba viendo:
+        // se revierten los args, se vuelve a pintar lo anterior y el error se
+        // muestra como aviso encima.
+        inst.args = argsPrevios;
+        this._render(inst);
+        this._avisar(el, e.message);
       }
+    }
+
+    /** Aviso temporal sobre el widget, sin reemplazar su contenido. */
+    _avisar(el, msg) {
+      const aviso = document.createElement('div');
+      aviso.style.cssText = `padding:8px 14px;background:rgba(217,59,59,.12);
+        border-bottom:0.5px solid var(--re,#D93B3B);color:var(--re,#D93B3B);
+        font-size:11px;font-family:var(--f2,monospace);`;
+      aviso.textContent = msg;
+      el.insertBefore(aviso, el.firstChild);
+      setTimeout(() => aviso.remove(), 6000);
     }
 
     instancia(el) { return _montados.get(el) || null; }
@@ -184,9 +205,16 @@
         densidad,
         contexto:   inst.contexto,
         ancho,
-        campos:     Reg.camposPara(inst.def.id, densidad),
+        // Los campos se resuelven acá, no en el widget: la decisión de qué
+        // información sobrevive en cada tamaño está declarada en el backend.
+        campos:     Reg.camposPara(inst.def.id, densidad,
+                                   (inst.args || {}).orden),
         args:       inst.args,
         epistemico: inst.epistemico,
+        // Por qué columnas se puede ordenar, según la declaración. El widget
+        // no debería inventar su propia lista: el backend ya validó que estas
+        // sean las que la capacidad admite.
+        ordenables: inst.def.ordenable_por || [],
         // Altura ocupada por barras fijas arriba. Un widget con encabezado
         // sticky lo necesita: pegarse a top:0 lo esconde detrás del nav.
         offsetTop:  this.offsetSuperior(),

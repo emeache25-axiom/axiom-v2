@@ -22,6 +22,10 @@ from fastapi import APIRouter, Request, HTTPException, Query
 from backend.domain.registry import (
     registro, CapacidadDesconocida, ArgumentosInvalidos,
 )
+# Importar dispara el registro de las declaraciones de widgets, que se validan
+# contra las capacidades: si un widget consume una capacidad inexistente o
+# declara ordenar por una columna que ella no admite, el servicio no arranca.
+import backend.domain.widgets  # noqa: F401
 
 router = APIRouter(prefix="/api/capacidades", tags=["capacidades"])
 logger = logging.getLogger(__name__)
@@ -59,6 +63,25 @@ async def formato_function_calling(categoria: str = ""):
 async def formato_mcp():
     """El catálogo proyectado al formato de tools de un servidor MCP."""
     return {"tools": registro.a_mcp()}
+
+
+@router.get("/_/widgets")
+async def listar_widgets(
+    contexto: str = Query("", description="pantalla | panel | chat | dashboard"),
+    capacidad: str = Query("", description="Filtrar por la capacidad que consumen"),
+):
+    """
+    Catálogo de widgets: qué existe, qué capacidad consume cada uno y qué
+    muestra en cada densidad.
+
+    Vive en el backend porque son DATOS, no código de plataforma: la decisión
+    de qué información sobrevive en pantalla chica debería ser la misma en la
+    web y en cualquier otro cliente. Lo único específico de cada plataforma es
+    el render.
+    """
+    from backend.domain.widgets import registro_widgets
+    w = registro_widgets.listar(contexto=contexto, capacidad=capacidad)
+    return {"total": len(w), "widgets": w}
 
 
 @router.get("/_/categorias/estado")

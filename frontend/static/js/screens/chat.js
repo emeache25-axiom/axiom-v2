@@ -24,24 +24,36 @@
 
   const SUGERENCIAS = [
     '¿Cómo está el mercado hoy?',
+    'Pares /BTC que oscilen con spread bajo',
+    '¿Qué sectores están fuertes?',
     '¿Cómo viene ONT?',
-    'Analizá ethereum',
-    '¿Bitcoin está fuerte o débil?',
   ];
 
   const ChatScreen = {
     _historial: [],
     _enviando: false,
+    _widgets: [],          // contenedores de widgets montados, para desmontar
 
     onEnter() {
       this._render();
     },
 
-    onLeave() {},
+    onLeave() {
+      // Cada widget montado tiene un ResizeObserver activo: si no se desmonta,
+      // sigue vivo en una pantalla que ya no se ve.
+      this._desmontarWidgets();
+    },
+
+    _desmontarWidgets() {
+      if (!NS.WidgetMount) return;
+      this._widgets.forEach(el => { try { NS.WidgetMount.unmount(el); } catch (e) {} });
+      this._widgets = [];
+    },
 
     _render() {
       const root = document.getElementById('screen-chat');
       if (!root) return;
+      this._desmontarWidgets();
 
       root.innerHTML = `
         <div style="display:flex;flex-direction:column;height:100%;max-width:820px;margin:0 auto;padding:0 16px;">
@@ -123,6 +135,61 @@
       return div;
     },
 
+    /**
+     * Monta widgets para las capacidades que Kepler ejecutó.
+     *
+     * El backend NO decide qué widget usar — no conoce el catálogo del
+     * frontend. Solo informa qué capacidad corrió, con qué argumentos y qué
+     * devolvió. Acá se busca si hay un widget que declare esa capacidad y el
+     * contexto 'chat'; si no lo hay, queda solo el texto.
+     *
+     * Los datos son los que el modelo YA analizó: si el widget los pidiera de
+     * nuevo podría recibir otros (los tickers se refrescan cada 15 min) y el
+     * texto diría una cosa mientras la tabla muestra otra.
+     */
+    _montarWidgets(tools) {
+      if (!tools || !tools.length || !NS.Widgets || !NS.WidgetMount) return;
+      const cont = document.getElementById('chat-msgs');
+      if (!cont) return;
+
+      // Kepler puede llamar varias veces a la misma capacidad refinando la
+      // búsqueda (primero sin filtro de spread, después con). Las llamadas
+      // intermedias son pasos de su razonamiento, no resultados: se monta solo
+      // la última de cada capacidad.
+      const ultimas = new Map();
+      for (const t of tools) if (t.resultado) ultimas.set(t.tool, t);
+
+      for (const t of ultimas.values()) {
+        const def = NS.Widgets.porCapacidad(t.tool)
+                              .find(w => w.contextos.includes('chat'));
+        if (!def) continue;      // sin widget para esta capacidad: solo texto
+
+        const bloque = document.createElement('div');
+        bloque.style.cssText = 'width:100%;margin-top:2px;';
+        bloque.innerHTML = `
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;
+                      font-family:var(--f2,monospace);font-size:10px;
+                      text-transform:uppercase;letter-spacing:.1em;color:${C.muted};">
+            ${def.icono ? `<i class="ti ${def.icono}" style="font-size:12px;"></i>` : ''}
+            <span>${def.label}</span>
+          </div>
+          <div data-widget-host
+               style="background:${C.surface};border:0.5px solid ${C.border};
+                      border-radius:10px;overflow:hidden;"></div>`;
+        cont.appendChild(bloque);
+
+        const host = bloque.querySelector('[data-widget-host]');
+        NS.WidgetMount.mount(host, def.id, {
+          datos:      t.resultado,
+          args:       t.input || {},
+          contexto:   'chat',
+          epistemico: t.epistemico,
+        });
+        this._widgets.push(host);
+      }
+      cont.scrollTop = cont.scrollHeight;
+    },
+
     _escapar(s) {
       const d = document.createElement('div');
       d.textContent = s == null ? '' : String(s);
@@ -152,6 +219,7 @@
 
         if (pensando) pensando.remove();
         this._pintarMensaje('assistant', data.respuesta || '(sin respuesta)', data.tools_usadas);
+        this._montarWidgets(data.tools_usadas);
         this._historial = data.historial || this._historial;
       } catch (e) {
         if (pensando) pensando.remove();

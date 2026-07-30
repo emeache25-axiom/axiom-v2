@@ -1,9 +1,15 @@
 /**
- * AXIOM — Widget: tabla_pares
+ * AXIOM — Widget: tabla_pares (RENDER)
  * ────────────────────────────────────────────────────────────────────────────
- * El screener de pares como widget reutilizable. Primer widget real del
- * sistema, y el caso de prueba del contrato: once columnas, ordenamiento por
- * encabezado y tres densidades.
+ * Solo el render. La DECLARACIÓN —qué capacidad consume, qué campos en cada
+ * densidad, por qué columnas se puede ordenar— vive en el backend
+ * (`backend/domain/widgets.py`) y llega por `/api/capacidades/_/widgets`.
+ *
+ * Así, un cliente en otra plataforma lee el mismo catálogo y solo escribe su
+ * propio render. Y el backend puede validar que las columnas ordenables sean
+ * las que la capacidad realmente admite.
+ *
+ * Este archivo sabe CÓMO se dibuja cada campo; no decide CUÁLES se muestran.
  *
  * QUÉ RESUELVE, además de ser reutilizable: el encabezado fijo. La tabla no
  * podía tenerlo porque con 11 columnas necesitaba scroll horizontal, y
@@ -83,11 +89,6 @@
     },
   };
 
-  const ORDEN_COMPACTO = ['par', 'precio', 'metrica_activa'];
-  const ORDEN_NORMAL   = ['par', 'exchange', 'precio', 'volumen', 'metrica_activa', 'spread'];
-  const ORDEN_AMPLIO   = ['par', 'exchange', 'precio', 'volumen', 'cambio',
-                          'volatilidad', 'desvio', 'repetible', 'spread', 'velas', 'coin'];
-
   /**
    * Info de la coin, o "sin información" cuando su base no está en el catálogo
    * de CoinGecko. Esos pares se muestran igual: siguen siendo operables.
@@ -114,46 +115,9 @@
     </span>`;
   }
 
-  /**
-   * Resuelve la lista de columnas para una densidad, sustituyendo el
-   * marcador `metrica_activa` por la columna que se está ordenando.
-   *
-   * Eso hace usable la tabla en el celular: si ordenás por spread ves spread;
-   * si cambiás a volatilidad, esa columna la reemplaza. La información visible
-   * es la que estás mirando.
-   */
-  function columnasPara(densidad, ordenActual) {
-    const base = densidad === 'compacto' ? ORDEN_COMPACTO
-               : densidad === 'normal'   ? ORDEN_NORMAL
-               : ORDEN_AMPLIO;
-
-    return base.map(k => {
-      if (k !== 'metrica_activa') return k;
-      // La columna de la métrica ordenada; si se ordena por algo que no es
-      // métrica (par, precio), se cae a volatilidad, que es la principal.
-      const col = COLS[ordenActual];
-      return (col && col.metrica) ? ordenActual : 'volatilidad';
-    }).filter((k, i, arr) => COLS[k] && arr.indexOf(k) === i);   // sin duplicados
-  }
-
   // ── El widget ───────────────────────────────────────────────────────────────
 
-  NS.Widgets.register({
-    id:    'tabla_pares',
-    label: 'Screener de pares',
-    grupo: 'Mercado',
-    icono: 'ti-arrows-exchange',
-
-    capacidad:   'buscar_pares',
-    argsDefault: { min_volumen: 1000, orden: 'volumen', limit: 20 },
-
-    contextos: ['pantalla', 'panel', 'chat', 'dashboard'],
-
-    densidades: {
-      compacto: { hasta: 520,  campos: ORDEN_COMPACTO },
-      normal:   { hasta: 940,  campos: ORDEN_NORMAL },
-      amplio:   { hasta: null, campos: ORDEN_AMPLIO },
-    },
+  NS.Widgets.render('tabla_pares', {
 
     render(datos, ctx) {
       const pares = (datos && (datos.pares || datos)) || [];
@@ -164,7 +128,9 @@
 
       const orden = (ctx.args && ctx.args.orden) || 'volumen';
       const dir   = (ctx.args && ctx.args.dir)   || '';
-      const cols  = columnasPara(ctx.densidad, orden);
+      // Qué columnas mostrar lo decide la declaración (backend), no este
+      // archivo: llega resuelto en ctx.campos.
+      const cols  = (ctx.campos || []).filter(k => COLS[k]);
       const grid  = cols.map(k => COLS[k].ancho).join(' ');
 
       // En amplio puede hacer falta scroll horizontal; en las otras no, y por
@@ -175,7 +141,9 @@
       // Con pocas columnas visibles no hay encabezados donde hacer clic para
       // las métricas ocultas: sin este selector, la tabla quedaría sin forma
       // de reordenarse en el celular.
-      const selector = ctx.densidad === 'amplio' ? '' : selectorOrden(orden, dir);
+      const selector = ctx.densidad === 'amplio'
+        ? ''
+        : selectorOrden(orden, dir, ctx.ordenables);
 
       return `
         ${selector}
@@ -246,9 +214,14 @@
    * las métricas ocultas no tienen encabezado donde hacer clic — sin esto la
    * tabla no se podría reordenar desde el celular.
    */
-  function selectorOrden(ordenActual, dirActual) {
-    const opciones = Object.keys(COLS)
-      .filter(k => COLS[k].orden)
+  function selectorOrden(ordenActual, dirActual, ordenables) {
+    // Las opciones vienen de la declaración, no de este archivo: el backend ya
+    // validó que la capacidad las admita. Cuando las dos listas vivían por
+    // separado se desincronizaron y ordenar por 'coin' devolvía 400.
+    const cols = (ordenables && ordenables.length)
+      ? ordenables.filter(k => COLS[k])
+      : Object.keys(COLS).filter(k => COLS[k].orden);
+    const opciones = cols
       .map(k => `<option value="${k}" ${k === ordenActual ? 'selected' : ''}>${COLS[k].label}</option>`)
       .join('');
 

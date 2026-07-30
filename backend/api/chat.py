@@ -230,12 +230,28 @@ async def chat(request: Request, body: ChatRequest):
                 for fc in llamadas:
                     nombre = fc.get("name")
                     args   = fc.get("args") or {}
-                    tools_usadas.append({"tool": nombre, "input": args})
                     try:
                         salida = await _ejecutar_funcion(domain, pool, nombre, args)
                     except Exception as e:
                         logger.warning("[chat] funcion %s fallo: %s", nombre, e)
                         salida = {"error": str(e)}
+
+                    # El registro devuelve {capacidad, resultado, epistemico}.
+                    # Se separan para que el frontend pueda montar un widget con
+                    # los datos que el modelo efectivamente analizó — si tuviera
+                    # que pedirlos de nuevo podría recibir otros (los tickers se
+                    # refrescan cada 15 min) y el texto diría una cosa mientras
+                    # el widget muestra otra.
+                    #
+                    # El backend NO decide qué widget usar: no conoce el catálogo
+                    # del frontend. Solo informa qué capacidad corrió y qué dio.
+                    tools_usadas.append({
+                        "tool":       nombre,
+                        "input":      args,
+                        "resultado":  salida.get("resultado") if isinstance(salida, dict) else salida,
+                        "epistemico": salida.get("epistemico") if isinstance(salida, dict) else None,
+                    })
+
                     # Gemini espera el resultado envuelto en functionResponse.
                     # Se serializa/deserializa para garantizar tipos JSON puros.
                     limpio = json.loads(json.dumps({"resultado": salida},
