@@ -1,5 +1,6 @@
 const WatchlistScreen = {
   // ── Estado ────────────────────────────────────────────────────────────────
+  _epistemico: null,        // declaración de la capacidad, para el widget
   items:        [],
   pollInterval: null,
   POLL_MS:      15000,
@@ -21,6 +22,10 @@ const WatchlistScreen = {
 
   onLeave() {
     this._stopPolling();
+    // El widget tiene un ResizeObserver vivo: si no se desmonta, sigue
+    // observando un contenedor que ya no se ve.
+    const cont = document.getElementById('wl-tbody');
+    if (cont && window.AXIOM?.WidgetMount) AXIOM.WidgetMount.unmount(cont);
   },
 
   // ── Tabs ──────────────────────────────────────────────────────────────────
@@ -82,20 +87,60 @@ const WatchlistScreen = {
   },
 
   // ── Tab Lista ──────────────────────────────────────────────────────────────
+  // La tabla ya no vive acá: es el widget `lista_watchlist`, montado en
+  // #wl-tbody. Esta pantalla conserva lo que es propio de la GESTIÓN —el CRUD,
+  // los modales, los grupos— y le pasa los datos al widget.
+  //
+  // El widget no conoce esta pantalla: cuando se toca una acción emite
+  // `axiom:watchlist-accion` y acá se decide qué hacer. Por eso el mismo
+  // widget funciona montado en un panel o en una respuesta de Kepler, donde
+  // se muestra sin acciones.
   async _loadList() {
-    const tbody = document.getElementById('wl-tbody');
-    if (!tbody) return;
-    tbody.innerHTML = `<div style="padding:24px;text-align:center;color:var(--t3);font-size:13px;">
-      <i class="ti ti-refresh"></i> Cargando...</div>`;
+    const cont = document.getElementById('wl-tbody');
+    if (!cont) return;
     try {
       const data = await API.getWatchlist();
-      this.items = data.items;
-      tbody.innerHTML = this.items.length
-        ? this.items.map(item => this._renderRow(item)).join('')
-        : this._renderEmpty();
+      this.items = data.items || [];
+
+      if (!this._epistemico) this._cargarEpistemico();
+
+      await AXIOM.WidgetMount.mount(cont, 'lista_watchlist', {
+        datos: { items: this.items },
+        contexto: 'pantalla',
+        epistemico: this._epistemico,
+      });
+      this._bindAccionesWidget(cont);
     } catch(e) {
-      tbody.innerHTML = `<div style="padding:20px;color:var(--re);font-size:13px;">Error al cargar</div>`;
+      cont.innerHTML = `<div style="padding:20px;color:var(--re);font-size:13px;">
+        Error al cargar: ${e.message}</div>`;
     }
+  },
+
+  /** Traduce las acciones que emite el widget a los métodos de esta pantalla. */
+  _bindAccionesWidget(cont) {
+    if (cont._wlBound) return;      // una sola vez por contenedor
+    cont._wlBound = true;
+    cont.addEventListener('axiom:watchlist-accion', (ev) => {
+      const { accion, id, valor, nombre } = ev.detail || {};
+      if (accion === 'bot')      this._toggleBot(id, valor);
+      else if (accion === 'editar')   this._editItem(id);
+      else if (accion === 'eliminar') this._removeItem(id, nombre);
+      else if (accion === 'abrir')    this._openInCharts(id);
+    });
+  },
+
+  /** Declaración epistémica de `mi_watchlist`, para que el widget la exponga. */
+  async _cargarEpistemico() {
+    try {
+      const r = await fetch('/api/capacidades/mi_watchlist');
+      if (!r.ok) return;
+      this._epistemico = (await r.json()).epistemico || null;
+      const cont = document.getElementById('wl-tbody');
+      if (cont && this._epistemico) {
+        AXIOM.WidgetMount.actualizar(cont, { items: this.items }, this._epistemico);
+        this._bindAccionesWidget(cont);
+      }
+    } catch(e) { /* sin declaración: el widget se muestra sin la nota */ }
   },
 
   // ── Tab Coins sugeridas ───────────────────────────────────────────────────
@@ -1368,68 +1413,10 @@ const WatchlistScreen = {
     }
   },
 
-  _renderRow(item) {
-    const chg24Color = this._chgColor(item.change_24h);
-    const chg7Color  = this._chgColor(item.change_7d);
-    const avatar = item.image
-      ? `<img src="${item.image}" style="width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0;">`
-      : `<div style="width:28px;height:28px;border-radius:50%;background:var(--c3);
-           display:flex;align-items:center;justify-content:center;
-           font-family:var(--f2);font-size:9px;font-weight:600;color:var(--t2);">
-           ${(item.base || item.symbol || '').slice(0,4)}</div>`;
-    return `
-    <div id="wl-row-${item.id}"
-         ondblclick="WatchlistScreen._openInCharts(${item.id})"
-         title="Doble clic para ver en Gráficos"
-         style="display:grid;grid-template-columns:1fr 100px 80px 80px 80px 90px 80px;
-                gap:8px;padding:10px 16px;border-bottom:0.5px solid var(--w1);align-items:center;">
-      <div style="display:flex;align-items:center;gap:8px;min-width:0;">
-        ${avatar}
-        <div style="min-width:0;">
-          <div style="font-weight:500;color:var(--t1);font-size:13px;
-                      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${item.name}</div>
-          <div style="font-family:var(--f2);font-size:10px;color:var(--t3);">${item.label || (item.base + '/' + item.quote)}</div>
-        </div>
-      </div>
-      <div class="wl-price" data-quote="${item.quote || 'USDT'}" style="font-family:var(--f2);font-size:12px;color:var(--t1);text-align:right;">
-        ${this._price(item.price, item.quote)}
-      </div>
-      <div class="wl-change" style="font-family:var(--f2);font-size:12px;font-weight:600;
-                                     text-align:right;color:${chg24Color};">
-        ${item.change_24h !== null ? `${item.change_24h > 0 ? '+' : ''}${item.change_24h.toFixed(2)}%` : '—'}
-      </div>
-      <div style="font-family:var(--f2);font-size:12px;font-weight:600;
-                  text-align:right;color:${chg7Color};">
-        ${item.change_7d !== null ? `${item.change_7d > 0 ? '+' : ''}${item.change_7d.toFixed(2)}%` : '—'}
-      </div>
-      <div style="font-family:var(--f2);font-size:11px;color:var(--t3);text-align:right;">
-        ${this._fmt(item.volume_24h)}
-      </div>
-      <div class="wl-exchange" style="font-family:var(--f2);font-size:10px;color:var(--t3);
-                                       text-align:center;text-transform:uppercase;">
-        ${item.exchange}
-      </div>
-      <div style="display:flex;align-items:center;justify-content:center;gap:6px;">
-        ${item.operable
-          ? `<button onclick="WatchlistScreen._toggleBot(${item.id}, ${!item.bot_enabled})" title="${item.bot_enabled ? 'Bot activo — click para desactivar' : 'Activar bot'}"
-               style="border:none;background:transparent;color:${item.bot_enabled ? '#56A14F' : 'var(--t3)'};cursor:pointer;font-size:15px;padding:2px;"
-               onmouseover="this.style.opacity='0.7'" onmouseout="this.style.opacity='1'">
-               <i class="ti ti-robot" aria-hidden="true"></i></button>`
-          : `<span title="Par no operable (solo mexc/coinex)" style="position:relative;display:inline-flex;color:var(--t4);font-size:15px;padding:2px;cursor:not-allowed;">
-               <i class="ti ti-robot-off" aria-hidden="true"></i></span>`}
-        <button onclick="WatchlistScreen._editItem(${item.id})" title="Editar"
-          style="border:none;background:transparent;color:var(--t3);cursor:pointer;font-size:14px;padding:2px;"
-          onmouseover="this.style.color='#F5F0EB'" onmouseout="this.style.color='var(--t3)'">
-          <i class="ti ti-pencil" aria-hidden="true"></i>
-        </button>
-        <button onclick="WatchlistScreen._removeItem(${item.id},'${item.name}')" title="Eliminar"
-          style="border:none;background:transparent;color:var(--t3);cursor:pointer;font-size:14px;padding:2px;"
-          onmouseover="this.style.color='var(--re)'" onmouseout="this.style.color='var(--t3)'">
-          <i class="ti ti-trash" aria-hidden="true"></i>
-        </button>
-      </div>
-    </div>`;
-  },
+  // _renderRow se movió al widget `lista_watchlist`
+  // (frontend/static/js/widgets/lista-watchlist.js). Acá quedaba atado a esta
+  // pantalla por los onclick inline; como widget se puede montar en cualquier
+  // lado y las acciones viajan por evento.
 
   // ── Modal agregar ──────────────────────────────────────────────────────────
   _selectedCoin:     null,

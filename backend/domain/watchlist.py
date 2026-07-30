@@ -63,12 +63,12 @@ class Watchlist:
         devuelve=(
             "lista de pares con coin_id, símbolo, nombre, quote, exchange, "
             "pair_symbol, operable, bot_enabled, grupo, orden, y precio, "
-            "change_24h, change_7d, market_cap y rank de la coin"
+            "change_24h, change_7d, volumen 24h, market_cap y rank de la coin"
         ),
         mide=(
             "las filas de la tabla watchlist —los pares que el usuario cargó "
-            "manualmente, tal como los guardó— cruzadas con el precio y la "
-            "capitalización vigentes de la tabla coins"
+            "manualmente, tal como los guardó— cruzadas con el precio, el "
+            "volumen y la capitalización vigentes de la tabla coins"
         ),
         infiere="nada",
         no_sabe=(
@@ -109,7 +109,7 @@ class Watchlist:
             SELECT w.id, w.coin_id, w.base AS symbol, w.quote, w.exchange,
                    w.pair_symbol, w.operable, w.bot_enabled, w.position{col_grupo},
                    c.name, c.price, c.change_24h, c.change_7d,
-                   c.market_cap, c.rank, c.supercat, c.image
+                   c.market_cap, c.volume_24h, c.rank, c.supercat, c.image
             FROM watchlist w
             LEFT JOIN coins c ON c.id = w.coin_id
         """
@@ -127,7 +127,8 @@ class Watchlist:
         salida = []
         for r in rows:
             d = dict(r)
-            for campo in ("price", "change_24h", "change_7d", "market_cap"):
+            for campo in ("price", "change_24h", "change_7d",
+                          "market_cap", "volume_24h"):
                 d[campo] = _f(d.get(campo))
             if d.get("symbol"):
                 d["symbol"] = d["symbol"].upper()

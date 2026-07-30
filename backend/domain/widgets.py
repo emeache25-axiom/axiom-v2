@@ -188,6 +188,41 @@ registro_widgets = RegistroWidgets()
 # ══ Declaraciones ═════════════════════════════════════════════════════════════
 
 registro_widgets.registrar(Widget(
+    id="lista_watchlist",
+    label="Watchlist",
+    grupo="Seguimiento",
+    icono="ti-list",
+    descripcion=(
+        "Los pares en seguimiento con su precio y variaciones. En la pantalla "
+        "de gestión incluye acciones (activar bot, editar, eliminar); montado "
+        "en otros contextos es solo lectura."
+    ),
+    capacidad="mi_watchlist",
+    contextos=("pantalla", "panel", "chat", "dashboard"),
+    args_default={},
+
+    densidades={
+        # Lo que sobrevive en pantalla chica: qué par es, a cuánto está y
+        # cuánto se movió hoy. El resto es contexto que puede esperar.
+        "compacto": Densidad(hasta=460, campos=("coin", "precio", "cambio_24h")),
+        "normal":   Densidad(hasta=820, campos=(
+            "coin", "precio", "cambio_24h", "cambio_7d", "exchange")),
+        # En la vista amplia se suman volumen y la columna de acciones — que
+        # el render muestra solo si el contexto es 'pantalla'.
+        "amplio":   Densidad(hasta=None, campos=(
+            "coin", "precio", "cambio_24h", "cambio_7d", "volumen",
+            "exchange", "acciones")),
+    },
+
+    # La capacidad `mi_watchlist` no acepta ordenamiento: devuelve los pares en
+    # el orden que el usuario definió (columna `position`). Reordenar es una
+    # acción de gestión, no un parámetro de consulta.
+    ordenable_por=(),
+    metricas=(),
+))
+
+
+registro_widgets.registrar(Widget(
     id="tabla_pares",
     label="Screener de pares",
     grupo="Mercado",
