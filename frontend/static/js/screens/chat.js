@@ -147,10 +147,16 @@
      * nuevo podría recibir otros (los tickers se refrescan cada 15 min) y el
      * texto diría una cosa mientras la tabla muestra otra.
      */
-    _montarWidgets(tools) {
+    async _montarWidgets(tools) {
       if (!tools || !tools.length || !NS.Widgets || !NS.WidgetMount) return;
       const cont = document.getElementById('chat-msgs');
       if (!cont) return;
+
+      // Las declaraciones de widgets viven en el backend y se cargan async.
+      // Si se entra directo al chat sin pasar por otra pantalla que ya las
+      // haya pedido, el catálogo está vacío y no habría candidatos: parecería
+      // que el widget no existe cuando en realidad todavía no llegó.
+      if (!NS.Widgets.listo) await NS.Widgets.cargar();
 
       // Kepler puede llamar varias veces a la misma capacidad refinando la
       // búsqueda (primero sin filtro de spread, después con). Las llamadas
@@ -159,6 +165,7 @@
       const ultimas = new Map();
       for (const t of tools) if (t.resultado) ultimas.set(t.tool, t);
 
+      let ultimoBloque = null;
       for (const t of ultimas.values()) {
         const def = NS.Widgets.porCapacidad(t.tool)
                               .find(w => w.contextos.includes('chat'));
@@ -179,15 +186,24 @@
         cont.appendChild(bloque);
 
         const host = bloque.querySelector('[data-widget-host]');
-        NS.WidgetMount.mount(host, def.id, {
+        // Se ESPERA el montaje: si no, el scroll de abajo corre antes de que
+        // la tabla ocupe su alto y el widget queda fuera de vista — parecía
+        // que no se montaba, y en realidad estaba abajo del scroll.
+        await NS.WidgetMount.mount(host, def.id, {
           datos:      t.resultado,
           args:       t.input || {},
           contexto:   'chat',
           epistemico: t.epistemico,
         });
         this._widgets.push(host);
+        ultimoBloque = bloque;
       }
-      cont.scrollTop = cont.scrollHeight;
+
+      // `#chat-msgs` no tiene scroll propio: crece y scrollea la PÁGINA. Por
+      // eso mover su scrollTop no hacía nada y la tabla quedaba fuera de vista.
+      if (ultimoBloque) {
+        ultimoBloque.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
     },
 
     _escapar(s) {
@@ -219,7 +235,7 @@
 
         if (pensando) pensando.remove();
         this._pintarMensaje('assistant', data.respuesta || '(sin respuesta)', data.tools_usadas);
-        this._montarWidgets(data.tools_usadas);
+        await this._montarWidgets(data.tools_usadas);
         this._historial = data.historial || this._historial;
       } catch (e) {
         if (pensando) pensando.remove();

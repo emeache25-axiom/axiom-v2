@@ -195,4 +195,14 @@
 
   NS.Widgets = new WidgetRegistry();
   NS.Widgets.NIVELES = NIVELES;
+
+  // Precarga: el catálogo vive en el backend y llega async. Pedirlo al
+  // arrancar evita que la primera pantalla que necesite un widget se
+  // encuentre con el registro vacío — que es lo que pasaba al entrar directo
+  // al chat sin pasar antes por otra vista.
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => NS.Widgets.cargar());
+  } else {
+    NS.Widgets.cargar();
+  }
 })();
