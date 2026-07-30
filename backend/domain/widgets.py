@@ -188,6 +188,41 @@ registro_widgets = RegistroWidgets()
 # ══ Declaraciones ═════════════════════════════════════════════════════════════
 
 registro_widgets.registrar(Widget(
+    id="canastas_sugeridas",
+    label="Coins sugeridas",
+    grupo="Mercado",
+    icono="ti-bulb",
+    descripcion=(
+        "Las coins que el sistema sugiere según el régimen vigente, en tres "
+        "canastas por horizonte (largo, medio, corto). No es una tabla: son "
+        "secciones con encabezado propio. Es la vista natural del resultado de "
+        "coins_sugeridas."
+    ),
+    capacidad="coins_sugeridas",
+    contextos=("pantalla", "panel", "chat", "dashboard"),
+    args_default={},
+
+    densidades={
+        # Lo mínimo para reconocer una candidata: qué es, a cuánto está y cómo
+        # viene hoy.
+        "compacto": Densidad(hasta=520, campos=("coin", "precio", "cambio_24h")),
+        "normal":   Densidad(hasta=880, campos=(
+            "coin", "precio", "cambio_24h", "cambio_7d")),
+        # 'estado' trae la señal y las condiciones cumplidas (o el catalizador
+        # en las canastas de medio y corto). 'agregar' solo se dibuja si el
+        # contexto es 'pantalla'.
+        "amplio":   Densidad(hasta=None, campos=(
+            "coin", "precio", "cambio_24h", "cambio_7d", "estado", "agregar")),
+    },
+
+    # La capacidad no acepta ordenamiento: el orden de cada canasta lo define
+    # el criterio de selección, no el usuario.
+    ordenable_por=(),
+    metricas=(),
+))
+
+
+registro_widgets.registrar(Widget(
     id="lista_watchlist",
     label="Watchlist",
     grupo="Seguimiento",

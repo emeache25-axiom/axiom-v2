@@ -1,6 +1,8 @@
 const WatchlistScreen = {
   // ── Estado ────────────────────────────────────────────────────────────────
-  _epistemico: null,        // declaración de la capacidad, para el widget
+  _epistemico: null,        // declaración de mi_watchlist, para el widget
+  _epiSugeridas: null,      // declaración de coins_sugeridas
+  _sugeridas: null,         // último resultado, para re-montar
   items:        [],
   pollInterval: null,
   POLL_MS:      15000,
@@ -24,8 +26,12 @@ const WatchlistScreen = {
     this._stopPolling();
     // El widget tiene un ResizeObserver vivo: si no se desmonta, sigue
     // observando un contenedor que ya no se ve.
-    const cont = document.getElementById('wl-tbody');
-    if (cont && window.AXIOM?.WidgetMount) AXIOM.WidgetMount.unmount(cont);
+    if (window.AXIOM?.WidgetMount) {
+      ['wl-tbody', 'wl-panel-suggested'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) AXIOM.WidgetMount.unmount(el);
+      });
+    }
   },
 
   // ── Tabs ──────────────────────────────────────────────────────────────────
@@ -144,293 +150,66 @@ const WatchlistScreen = {
   },
 
   // ── Tab Coins sugeridas ───────────────────────────────────────────────────
+  // El render se movió al widget `canastas_sugeridas`. Acá queda la carga y la
+  // acción de agregar a la watchlist, que es gestión y no viaja con el widget:
+  // montado en el chat, las canastas se ven sin el botón de agregar.
   async _loadSuggested() {
     const panel = document.getElementById('wl-panel-suggested');
     if (!panel) return;
-    panel.innerHTML = `<div style="padding:32px;text-align:center;color:var(--t3);font-size:13px;">
-      <i class="ti ti-refresh"></i> Cargando...</div>`;
     try {
       const data = await API.getWatchlistSuggested();
-      panel.innerHTML = this._renderSuggested(data);
+      this._sugeridas = data;
+
+      if (!this._epiSugeridas) this._cargarEpiSugeridas();
+
+      await AXIOM.WidgetMount.mount(panel, 'canastas_sugeridas', {
+        datos: data,
+        contexto: 'pantalla',
+        epistemico: this._epiSugeridas,
+      });
+      this._bindSugeridas(panel);
     } catch(e) {
-      panel.innerHTML = `<div style="padding:20px;color:var(--re);font-size:13px;">Error al cargar sugeridas</div>`;
+      panel.innerHTML = `<div style="padding:20px;color:var(--re);font-size:13px;">
+        Error al cargar sugeridas: ${e.message}</div>`;
     }
   },
 
-  // Colores por régimen
-  _regimeColor(r) {
-    const map = {
-      ACUMULACION:'#2563EB', ALCISTA_A:'#56A14F', ALCISTA_B:'#B47514',
-      DISTRIBUCION:'#D86326', BAJISTA:'#D93B3B', LATERAL:'#78716C',
-    };
-    return map[r] || '#78716C';
+  /** El widget avisa cuando se pide agregar una coin; acá se ejecuta. */
+  _bindSugeridas(panel) {
+    if (panel._sugBound) return;
+    panel._sugBound = true;
+    panel.addEventListener('axiom:sugerida-agregar', (ev) => {
+      const { id, nombre, symbol } = ev.detail || {};
+      this._quickAdd(id, nombre, symbol);
+    });
   },
 
-  _renderSuggested(data) {
-    const regime       = data.regime       || 'ACUMULACION';
-    const ctx          = data.context      || {};
-    const regimesByTf  = data.regimes_by_tf || {};
-    const riskColors   = { 'MODERADO-BAJO':'#56A14F', MODERADO:'#B47514', ALTO:'#D86326', 'MUY ALTO':'#D93B3B', EXTREMO:'#D93B3B' };
-    const riskColor    = riskColors[ctx.risk_level] || '#78716C';
-    const regimeColor  = this._regimeColor(regime);
-
-    // ── Banner de contexto ──────────────────────────────────────────────────
-    // Formatear timestamp de coins
-    const coinsTs = data.coins_updated_at
-      ? (() => {
-          const d = new Date(data.coins_updated_at);
-          const now = new Date();
-          const diffMin = Math.round((now - d) / 60000);
-          const diffH   = Math.round(diffMin / 60);
-          const ago = diffMin < 60
-            ? `hace ${diffMin} min`
-            : diffH < 24
-              ? `hace ${diffH}h`
-              : `hace ${Math.round(diffH/24)}d`;
-          return `${d.toLocaleString('es-AR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})} (${ago})`;
-        })()
-      : '—';
-
-    const banner = `
-    <div class="card" style="padding:14px 16px;margin-bottom:16px;
-                              border-left:3px solid ${regimeColor};
-                              border-top:0.5px solid var(--w1);
-                              border-right:0.5px solid var(--w1);
-                              border-bottom:0.5px solid var(--w1);">
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;
-                  gap:12px;flex-wrap:wrap;">
-        <div>
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
-            <span style="font-family:var(--f2);font-size:9px;text-transform:uppercase;
-                         letter-spacing:.1em;color:var(--t3);">Régimen actual</span>
-            <span style="font-family:var(--f2);font-size:11px;font-weight:700;
-                         color:${regimeColor};">${regime}</span>
-            <span style="font-family:var(--f2);font-size:9px;color:var(--t4);">·</span>
-            <i class="ti ti-database" style="font-size:10px;color:var(--t4);"></i>
-            <span style="font-family:var(--f2);font-size:9px;color:var(--t4);">
-              Precios actualizados: ${coinsTs}
-            </span>
-          </div>
-          <div style="font-size:13px;color:var(--t2);line-height:1.4;">${ctx.summary || ''}</div>
-        </div>
-        <div style="display:flex;gap:8px;flex-shrink:0;">
-          ${Object.entries(regimesByTf).map(([tf, r]) => `
-          <div style="text-align:center;">
-            <div style="font-family:var(--f2);font-size:9px;color:var(--t3);
-                        text-transform:uppercase;letter-spacing:.08em;margin-bottom:3px;">${tf}</div>
-            <div style="font-family:var(--f2);font-size:10px;font-weight:700;
-                        color:${this._regimeColor(r)};">${r}</div>
-          </div>`).join('')}
-          <div style="width:1px;background:var(--w1);margin:0 4px;"></div>
-          <div style="text-align:center;">
-            <div style="font-family:var(--f2);font-size:9px;color:var(--t3);
-                        text-transform:uppercase;letter-spacing:.08em;margin-bottom:3px;">Riesgo</div>
-            <div style="font-family:var(--f2);font-size:10px;font-weight:700;
-                        color:${riskColor};">${ctx.risk_level || '—'}</div>
-          </div>
-        </div>
-      </div>
-    </div>`;
-
-    // ── Sección largo ───────────────────────────────────────────────────────
-    const largoData = data.largo || {};
-    const largoRows = (largoData.assets || []).map(c => {
-      const signalDot = c.has_signal
-        ? `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;
-                        background:#56A14F;margin-right:5px;flex-shrink:0;
-                        box-shadow:0 0 5px #56A14F80;"></span>`
-        : `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;
-                        background:var(--t4);margin-right:5px;flex-shrink:0;"></span>`;
-      const metBar = Array.from({length:4}, (_,i) =>
-        `<span style="display:inline-block;width:10px;height:3px;border-radius:1px;
-                      background:${i < c.conditions_met ? '#56A14F' : 'var(--w1)'};
-                      margin-right:2px;"></span>`
-      ).join('');
-      return `
-      <div style="display:grid;grid-template-columns:1fr 90px 70px 70px 1fr 80px;
-                  gap:8px;padding:10px 14px;border-bottom:0.5px solid var(--w1);
-                  align-items:center;">
-        <div style="display:flex;align-items:center;gap:8px;min-width:0;">
-          ${c.image ? `<img src="${c.image}" style="width:28px;height:28px;border-radius:50%;flex-shrink:0;">` : ''}
-          <div>
-            <div style="font-size:13px;font-weight:600;color:var(--t1);">${c.name}</div>
-            <div style="font-family:var(--f2);font-size:10px;color:var(--t3);">${c.symbol}</div>
-          </div>
-        </div>
-        <div style="font-family:var(--f2);font-size:12px;color:var(--t1);text-align:right;">
-          ${this._price(c.price)}
-        </div>
-        <div style="font-family:var(--f2);font-size:12px;font-weight:600;
-                    text-align:right;color:${this._chgColor(c.change_24h)};">
-          ${c.change_24h != null ? `${c.change_24h > 0 ? '+' : ''}${c.change_24h.toFixed(2)}%` : '—'}
-        </div>
-        <div style="font-family:var(--f2);font-size:12px;font-weight:600;
-                    text-align:right;color:${this._chgColor(c.change_7d)};">
-          ${c.change_7d != null ? `${c.change_7d > 0 ? '+' : ''}${c.change_7d.toFixed(2)}%` : '—'}
-        </div>
-        <div style="min-width:0;">
-          <div style="display:flex;align-items:center;margin-bottom:3px;">
-            ${signalDot}
-            <span style="font-family:var(--f2);font-size:10px;color:var(--t3);
-                         white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${c.status}</span>
-          </div>
-          <div style="display:flex;align-items:center;gap:0;">
-            ${metBar}
-            <span style="font-family:var(--f2);font-size:9px;color:var(--t4);margin-left:4px;">
-              ${c.conditions_met}/4
-            </span>
-          </div>
-        </div>
-        <div style="text-align:center;">
-          <button onclick="WatchlistScreen._quickAdd('${c.id}','${c.name}','${c.symbol}')"
-            style="border:0.5px solid var(--cy);background:var(--cyg);color:var(--cy);
-                   border-radius:4px;padding:3px 9px;font-size:11px;cursor:pointer;">
-            <i class="ti ti-plus"></i>
-          </button>
-        </div>
-      </div>`;
-    }).join('');
-
-    const largoCard = `
-    <div class="card" style="border-top:2px solid #2563EB;
-                              border-left:1px solid #2563EB40;border-right:1px solid #2563EB40;
-                              border-bottom:1px solid #2563EB40;padding:0;overflow:hidden;margin-bottom:16px;">
-      <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;
-                  border-bottom:1px solid var(--w1);">
-        <i class="ti ti-clock" style="color:#2563EB;font-size:14px;"></i>
-        <div>
-          <div style="font-size:13px;font-weight:600;color:var(--t1);">${largoData.title || 'Largo Plazo'}</div>
-          <div style="font-family:var(--f2);font-size:10px;color:var(--t3);">
-            ${largoData.horizon} · ${largoData.technique}
-          </div>
-        </div>
-        <div style="margin-left:auto;font-family:var(--f2);font-size:10px;color:var(--t3);
-                    text-align:right;max-width:220px;">${ctx.largo_note || ''}</div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 90px 70px 70px 1fr 80px;
-                  gap:8px;padding:7px 14px;border-bottom:0.5px solid var(--w1);
-                  font-family:var(--f2);font-size:9px;color:var(--t4);
-                  text-transform:uppercase;letter-spacing:.1em;">
-        <span>Activo</span>
-        <span style="text-align:right;">Precio</span>
-        <span style="text-align:right;">24h</span>
-        <span style="text-align:right;">7d</span>
-        <span>Señal</span>
-        <span style="text-align:center;">+Watch</span>
-      </div>
-      ${largoRows}
-    </div>`;
-
-    // ── Sección genérica medio/corto ────────────────────────────────────────
-    const altSection = (sectionData, color, icon, noteKey) => {
-      const assets = sectionData.assets || [];
-      if (!assets.length) {
-        return `
-        <div class="card" style="border-top:2px solid ${color};
-                                  border-left:1px solid ${color}40;border-right:1px solid ${color}40;
-                                  border-bottom:1px solid ${color}40;padding:0;overflow:hidden;margin-bottom:16px;">
-          <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;
-                      border-bottom:1px solid var(--w1);">
-            <i class="ti ${icon}" style="color:${color};font-size:14px;"></i>
-            <div>
-              <div style="font-size:13px;font-weight:600;color:var(--t1);">${sectionData.title}</div>
-              <div style="font-family:var(--f2);font-size:10px;color:var(--t3);">
-                ${sectionData.horizon} · ${sectionData.technique}
-              </div>
-            </div>
-          </div>
-          <div style="padding:24px;text-align:center;color:var(--t3);font-size:12px;">
-            ${sectionData.empty_msg || 'Sin activos en este momento'}
-          </div>
-        </div>`;
+  /**
+   * Declaración epistémica de `coins_sugeridas`. Importa más que en otras
+   * capacidades: acá la selección ENTERA es una inferencia, no una medición.
+   */
+  async _cargarEpiSugeridas() {
+    try {
+      const r = await fetch('/api/capacidades/coins_sugeridas');
+      if (!r.ok) return;
+      this._epiSugeridas = (await r.json()).epistemico || null;
+      const panel = document.getElementById('wl-panel-suggested');
+      if (panel && this._epiSugeridas && this._sugeridas) {
+        AXIOM.WidgetMount.actualizar(panel, this._sugeridas, this._epiSugeridas);
+        this._bindSugeridas(panel);
       }
-
-      const rows = assets.map(c => {
-        const note = c.catalyst || c.volatility_note || '';
-        return `
-        <div style="display:grid;grid-template-columns:1fr 90px 70px 70px 1fr 80px;
-                    gap:8px;padding:9px 14px;border-bottom:0.5px solid var(--w1);
-                    align-items:center;">
-          <div style="display:flex;align-items:center;gap:8px;min-width:0;">
-            ${c.image
-              ? `<img src="${c.image}" style="width:26px;height:26px;border-radius:50%;flex-shrink:0;">`
-              : `<div style="width:26px;height:26px;border-radius:50%;background:var(--c3);
-                   display:flex;align-items:center;justify-content:center;
-                   font-size:8px;font-family:var(--f2);color:var(--t2);">${c.symbol.slice(0,4)}</div>`}
-            <div style="min-width:0;">
-              <div style="font-size:13px;font-weight:500;color:var(--t1);
-                          white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${c.name}</div>
-              <div style="font-family:var(--f2);font-size:10px;color:var(--t3);">${c.symbol}</div>
-            </div>
-          </div>
-          <div style="font-family:var(--f2);font-size:12px;color:var(--t1);text-align:right;">
-            ${this._price(c.price)}
-          </div>
-          <div style="font-family:var(--f2);font-size:12px;font-weight:600;
-                      text-align:right;color:${this._chgColor(c.change_24h)};">
-            ${c.change_24h != null ? `${c.change_24h > 0 ? '+' : ''}${c.change_24h.toFixed(2)}%` : '—'}
-          </div>
-          <div style="font-family:var(--f2);font-size:12px;font-weight:600;
-                      text-align:right;color:${this._chgColor(c.change_7d)};">
-            ${c.change_7d != null ? `${c.change_7d > 0 ? '+' : ''}${c.change_7d.toFixed(2)}%` : '—'}
-          </div>
-          <div style="font-family:var(--f2);font-size:10px;color:var(--t3);
-                      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${note}</div>
-          <div style="text-align:center;">
-            <button onclick="WatchlistScreen._quickAdd('${c.id}','${c.name}','${c.symbol}')"
-              style="border:0.5px solid var(--cy);background:var(--cyg);color:var(--cy);
-                     border-radius:4px;padding:3px 9px;font-size:11px;cursor:pointer;">
-              <i class="ti ti-plus"></i>
-            </button>
-          </div>
-        </div>`;
-      }).join('');
-
-      return `
-      <div class="card" style="border-top:2px solid ${color};
-                                border-left:1px solid ${color}40;border-right:1px solid ${color}40;
-                                border-bottom:1px solid ${color}40;padding:0;overflow:hidden;margin-bottom:16px;">
-        <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;
-                    border-bottom:1px solid var(--w1);">
-          <i class="ti ${icon}" style="color:${color};font-size:14px;"></i>
-          <div>
-            <div style="font-size:13px;font-weight:600;color:var(--t1);">${sectionData.title}</div>
-            <div style="font-family:var(--f2);font-size:10px;color:var(--t3);">
-              ${sectionData.horizon} · ${sectionData.technique}
-            </div>
-          </div>
-          <div style="margin-left:auto;font-family:var(--f2);font-size:10px;color:var(--t3);
-                      text-align:right;max-width:220px;">${ctx[noteKey] || ''}</div>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 90px 70px 70px 1fr 80px;
-                    gap:8px;padding:7px 14px;border-bottom:0.5px solid var(--w1);
-                    font-family:var(--f2);font-size:9px;color:var(--t4);
-                    text-transform:uppercase;letter-spacing:.1em;">
-          <span>Activo</span>
-          <span style="text-align:right;">Precio</span>
-          <span style="text-align:right;">24h</span>
-          <span style="text-align:right;">7d</span>
-          <span>Nota</span>
-          <span style="text-align:center;">+Watch</span>
-        </div>
-        ${rows}
-      </div>`;
-    };
-
-    return `
-    <div style="padding-top:4px;">
-      ${banner}
-      ${largoCard}
-      ${altSection(data.medio || {}, '#56A14F', 'ti-trending-up',  'medio_note')}
-      ${altSection(data.corto || {}, '#B47514', 'ti-bolt',         'corto_note')}
-    </div>`;
+    } catch(e) { /* sin declaración: el widget se muestra sin la nota */ }
   },
 
   async _quickAdd(coinId, name, symbol) {
     try {
       await API.addToWatchlist(coinId, 'coingecko');
-      // Feedback visual rápido
-      const btns = document.querySelectorAll(`[onclick*="_quickAdd('${coinId}'"]`);
+      // Feedback visual: marcar como agregada.
+      // Se buscan las dos formas de botón que conviven: los del screener, que
+      // todavía llaman a _quickAdd por onclick, y los del widget de canastas,
+      // que emiten evento y se identifican por data-sug-id.
+      const btns = document.querySelectorAll(
+        `[onclick*="_quickAdd('${coinId}'"], [data-sug-id="${coinId}"]`);
       btns.forEach(btn => {
         btn.innerHTML = '<i class="ti ti-check"></i>';
         btn.style.borderColor = '#56A14F';
