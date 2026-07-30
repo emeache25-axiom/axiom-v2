@@ -21,6 +21,14 @@ from backend.domain.base import Composable
 from backend.domain.registry import capacidad, Param
 
 
+# Supercategorías que no son sectores y quedan fuera del ranking de fuerza,
+# con la lectura que se les asigna.
+_NO_RANKEABLES = {
+    "otros":   "sin_clasificar",
+    "wrapped": "derivado",          # replica a su subyacente
+}
+
+
 class Mercado(Composable):
     def __init__(self, pool):
         self._pool = pool
@@ -202,10 +210,12 @@ class Mercado(Composable):
             "calibrable y otro valor daría otras etiquetas. La clasificación "
             "por supercategoría es de AXIOM sobre las categorías de CoinGecko: "
             "una coin puede pertenecer razonablemente a más de un sector y solo "
-            "se le asigna uno. La categoría 'otros' NO es un sector: agrupa lo "
-            "que no se pudo clasificar, proyectos sin nada en común, así que su "
-            "agregado no representa la fuerza de nada — por eso viene con "
-            "clasificado=false, sin lectura y fuera del ranking. Y los datos "
+            "se le asigna uno. Dos grupos NO son sectores y quedan fuera del "
+            "ranking (clasificado=false): 'otros', que agrupa lo que no se pudo "
+            "clasificar y por lo tanto no representa la fuerza de nada; y "
+            "'wrapped', que son tokens envueltos o puenteados que replican a su "
+            "subyacente — su movimiento es un reflejo, no dinámica propia, y "
+            "sumarlos a un sector duplicaría capital ya contado. Y los datos "
             "son del último sync, hasta 6 horas de antigüedad"
         ),
         fuente="tabla `coins` (sync desde CoinGecko cada 6 h)",
@@ -260,11 +270,15 @@ class Mercado(Composable):
         categorias = []
         for r in rows:
             sc   = r["supercat"] or "otros"
-            # 'otros' NO es un sector: es el cajón de las coins sin clasificar.
-            # Agrupa proyectos sin nada en común, así que su agregado no
-            # representa la fuerza de nada. Se devuelve igual (su capitalización
-            # es real) pero queda fuera del ranking y sin lectura de fuerza.
-            clasificado = sc != "otros"
+            # Dos grupos que NO son sectores y quedan fuera del ranking:
+            #   · 'otros'   — ausencia de clasificación: proyectos sin nada en
+            #                 común, su agregado no representa la fuerza de nada.
+            #   · 'wrapped' — tokens envueltos o puenteados (WETH, WSTEAMX):
+            #                 replican a su subyacente, no tienen dinámica
+            #                 propia. Rankearlos sería medir el reflejo, y
+            #                 sumarlos a un sector duplicaría capital ya contado.
+            # Se devuelven igual porque su capitalización es real.
+            clasificado = sc not in _NO_RANKEABLES
             mcap = float(r["total_mcap"]) if r["total_mcap"] else 0.0
             p24  = _r(r["pond_24h"])
             p7   = _r(r["pond_7d"])
@@ -284,7 +298,7 @@ class Mercado(Composable):
                 "coin_count":     r["coin_count"],
                 "clasificado":    clasificado,
                 "lectura":        self._lectura_sector(p7) if clasificado
-                                  else "sin_clasificar",
+                                  else _NO_RANKEABLES[sc],
             })
 
         # Ranking de fuerza sobre el ponderado a 7d, desempate por 24h ponderado.

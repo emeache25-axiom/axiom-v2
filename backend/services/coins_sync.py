@@ -30,8 +30,13 @@ _HEADERS = {
 }
 
 # ── Prioridad de supercategorías ─────────────────────────────────────────────
+# El orden decide: si una coin cae en varias supercategorías, gana la primera.
+# `wrapped` va segundo, apenas después de stablecoins: un token envuelto es
+# ANTES que nada un reflejo de su subyacente, aunque además figure como DeFi o
+# smart platform. Clasificarlo por esas otras etiquetas inflaría el sector con
+# capital que ya está contado en el activo original (WETH duplicaría ETH).
 _PRIORITY = [
-    "stablecoins", "memes", "privacy", "rwa", "ai", "gaming",
+    "stablecoins", "wrapped", "memes", "privacy", "rwa", "ai", "gaming",
     "defi", "layer2", "exchange", "payments", "bitcoin",
     "smart_platforms", "infrastructure", "staking", "desoc",
     "launchpads", "political", "sec_securities", "otros",
@@ -77,6 +82,10 @@ _CAT_MAP = {
     "Bridged Stablecoin":            "stablecoins",
     "Stablecoin Issuer":             "stablecoins",
     "Decentralized Finance (DeFi)":  "defi",
+    # CoinGecko devuelve la etiqueta corta en algunas coins y la larga en otras.
+    # Sin este alias, EBTC (categorías: Crypto-Backed Tokens, DeFi) quedaba sin
+    # clasificar pese a tener una categoría perfectamente mapeable.
+    "DeFi":                          "defi",
     "Decentralized Exchange (DEX)":  "defi",
     "Automated Market Maker (AMM)":  "defi",
     "Lending/Borrowing Protocols":   "defi",
@@ -142,7 +151,42 @@ _CAT_MAP = {
     "World Liberty Financial Portfolio": "political",
     "Trump-Affiliated":              "political",
     "PolitiFi":                      "political",
-    # Ecosistemas de redes (para stablecoins multi-chain)
+    # ── Tokens envueltos / respaldados ────────────────────────────────────
+    # No tienen dinámica propia: replican a su subyacente. Se separan para no
+    # contarlos dentro de un sector real — es el mismo fenómeno que WBTC/BTC en
+    # el screener: spread perfecto y rango casi nulo porque no oscila, refleja.
+    "Wrapped-Tokens":                "wrapped",
+    "Crypto-Backed Tokens":          "wrapped",
+    "Bridged-Tokens":                "wrapped",
+    "Liquid Staked Tokens":          "wrapped",
+
+    # ── Launchpads ────────────────────────────────────────────────────────
+    # `launchpads` ya estaba en _PRIORITY pero NINGUNA categoría mapeaba a ella:
+    # era una supercategoría huérfana, y las coins de launchpad caían en 'otros'.
+    # CoinGecko devuelve la etiqueta con mayúscula y minúscula indistintamente.
+    "Launchpad":                     "launchpads",
+    "launchpad":                     "launchpads",
+    "Launchpool":                    "launchpads",
+
+    # ── Otras categorías que faltaban ─────────────────────────────────────
+    "Gambling (GambleFi)":           "gaming",     # apuestas: lo más cercano
+    "Yield-Bearing Tokens":          "defi",
+    "Cybersecurity":                 "infrastructure",
+    "Wallets":                       "infrastructure",
+    "Trading Bots":                  "ai",
+    # 'Healthcare' se deja SIN mapear a propósito: no hay supercategoría que le
+    # corresponda y forzarla a una existente sería peor que dejarla en 'otros'.
+
+}
+
+
+# ── Ecosistemas de red — FALLBACK, no compiten con las categorías temáticas ───
+# Un "X Ecosystem" dice DÓNDE vive una coin, no QUÉ hace. Cuando estaban
+# mezclados con las categorías temáticas producían clasificaciones equivocadas:
+# PONS iba a 'exchange' por vivir en Robinhood aunque su categoría real es
+# Launchpad, y CTK iba a 'defi' por estar en Osmosis siendo Cybersecurity.
+# Ahora solo se consultan si NINGUNA categoría temática mapeó.
+_ECO_MAP = {
     "BNB Chain Ecosystem":           "exchange",
     "XRP Ledger Ecosystem":          "payments",
     "Ethereum Ecosystem":            "smart_platforms",
@@ -164,20 +208,37 @@ _CAT_MAP = {
     "Algorand Ecosystem":            "smart_platforms",
     "Fantom Ecosystem":              "smart_platforms",
     "Provenance Ecosystem":          "rwa",
+    "Monad Ecosystem":               "smart_platforms",
+    "Starknet Ecosystem":            "layer2",
+    "HyperEVM Ecosystem":            "smart_platforms",
+    "Hyperliquid Ecosystem":         "defi",
+    "Hyperunit Ecosystem":           "defi",
+    "Osmosis Ecosystem":             "defi",
+    "Robinhood Ecosystem":           "exchange",
 }
 
 
 def _assign_supercat(cg_cats: list[str]) -> str:
-    """Asigna supercategoría según prioridad."""
-    mapped = set()
-    for cat in cg_cats:
-        sc = _CAT_MAP.get(cat)
-        if sc:
-            mapped.add(sc)
-    for priority in _PRIORITY:
-        if priority in mapped:
-            return priority
-    return "otros"
+    """
+    Asigna supercategoría según prioridad.
+
+    Dos pasadas: primero las categorías TEMÁTICAS (qué hace la coin) y, solo si
+    ninguna mapeó, los ECOSISTEMAS (dónde vive). El orden importa — mezclarlos
+    hacía que una coin de launchpad en la red de Robinhood terminara
+    clasificada como 'exchange'.
+
+    Dentro de cada pasada gana la supercategoría que aparezca primero en
+    _PRIORITY. Si nada mapea, queda 'otros' — que NO es un sector sino ausencia
+    de clasificación, y el mapa de mercado la excluye del ranking de fuerza.
+    """
+    def _primera(mapa) -> str | None:
+        encontradas = {mapa[c] for c in cg_cats if c in mapa}
+        for p in _PRIORITY:
+            if p in encontradas:
+                return p
+        return None
+
+    return _primera(_CAT_MAP) or _primera(_ECO_MAP) or "otros"
 
 
 # ── Job horario: sincronizar precios ─────────────────────────────────────────

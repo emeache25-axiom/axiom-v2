@@ -94,6 +94,20 @@ async def estado_categorias(request: Request):
     return await estado(request.app.state.db_pool)
 
 
+@router.post("/_/categorias/reclasificar")
+async def reclasificar_categorias(request: Request):
+    """
+    Recalcula las supercategorías con el mapeo vigente, SIN llamar a ninguna
+    API: usa las categorías ya guardadas.
+
+    Es lo que hay que correr después de tocar el mapeo en coins_sync. Cambiar
+    cómo se traducen las categorías no debería costar volver a descargar
+    2.400 fichas.
+    """
+    from backend.services.categorias_fill import reclasificar
+    return await reclasificar(request.app.state.db_pool)
+
+
 @router.post("/_/categorias/completar")
 async def completar_categorias_endpoint(
     request: Request,
