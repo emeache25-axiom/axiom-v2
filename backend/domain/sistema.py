@@ -98,6 +98,10 @@ _DIR_DEFAULT = {
         "velas; el spread se toma del último libro capturado"
     ),
     parametros=[
+        Param("q", str,
+              "Búsqueda por texto: símbolo del par, base o nombre de la coin. "
+              "Sirve para encontrar un par concreto (ej. 'ONT', 'ONTBTC', "
+              "'Ontology').", ejemplos=("ONT", "bitcoin")),
         Param("quote", str,
               "Moneda de cotización del par. BTC para operar contra bitcoin.",
               opciones=("BTC", "USDT", "USDC", "ETH"), ejemplos=("BTC",)),
@@ -131,7 +135,7 @@ _DIR_DEFAULT = {
         Param("limit", int, "Máximo de resultados (tope 50).", default=20),
     ],
 )
-async def buscar_pares(pool, quote=None, exchange=None, min_volumen=1000.0,
+async def buscar_pares(pool, q=None, quote=None, exchange=None, min_volumen=1000.0,
                        min_volatilidad=None, min_repetible=None, max_spread=None,
                        min_impulso=None, min_impulso_rep=None,
                        max_mcap=None, solo_con_info=False,
@@ -143,6 +147,10 @@ async def buscar_pares(pool, quote=None, exchange=None, min_volumen=1000.0,
         args.append(v)
         return f"${len(args)}"
 
+    if q:
+        patron = _arg(f"%{str(q).strip()}%")
+        where.append(f"(p.pair_symbol ILIKE {patron} OR p.base ILIKE {patron} "
+                     f"OR c.name ILIKE {patron})")
     if quote:
         where.append(f"p.quote = {_arg(quote.upper())}")
     if exchange:

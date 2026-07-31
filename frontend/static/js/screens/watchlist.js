@@ -290,15 +290,6 @@ const WatchlistScreen = {
                  border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .15s;">
           <i class="ti ti-star" style="font-size:13px;"></i> Coins sugeridas
         </button>
-        <button onclick="Router.go('pairs')"
-          title="El screener ahora opera sobre pares tradeables"
-          style="display:flex;align-items:center;gap:6px;padding:8px 16px;
-                 border:none;background:transparent;cursor:pointer;
-                 font-size:13px;font-weight:500;color:var(--t3);
-                 border-bottom:2px solid transparent;margin-bottom:-1px;
-                 transition:all .15s;">
-          <i class="ti ti-arrows-exchange" style="font-size:13px;"></i> Screener → Pares
-        </button>
       </div>
 
       <!-- Panel: Lista -->
@@ -372,7 +363,7 @@ const WatchlistScreen = {
               onmouseout="this.style.background='var(--c2)';this.style.color='var(--t3)'">✕</button>
           </div>
           <div style="padding:16px 20px 20px;">
-          <input id="wl-search" type="text" placeholder="Buscar por nombre o símbolo..."
+          <input id="wl-search" type="text" placeholder="Buscar par: ONT, ONTBTC, Ontology..."
             oninput="WatchlistScreen._onSearch(this.value)"
             style="width:100%;padding:8px 12px;border-radius:var(--radius-s);
                    border:0.5px solid var(--w1);background:var(--c2);
@@ -504,18 +495,22 @@ const WatchlistScreen = {
   // lado y las acciones viajan por evento.
 
   // ── Modal agregar ──────────────────────────────────────────────────────────
-  _selectedCoin:     null,
-  _selectedExchange: 'coingecko',
-  _searchTimeout:    null,
+  // Se busca directamente en el catálogo de PARES: un solo paso, sin el rodeo
+  // de elegir coin y después descubrir sus pares en los exchanges.
+  _parElegido:    null,     // el par seleccionado del resultado
+  _resultados:    [],       // última búsqueda
+  _searchTimeout: null,
 
   _openAddModal() {
-    this._selectedCoin     = null;
-    this._selectedExchange = 'coingecko';
+    this._parElegido = null;
+    this._resultados = [];
     document.getElementById('wl-modal').style.display      = 'flex';
     document.getElementById('wl-search').value             = '';
     document.getElementById('wl-search-results').innerHTML = '';
-    document.getElementById('wl-exchange-section').style.display = 'none';
-    document.getElementById('wl-selected-coin').style.display    = 'none';
+    const secEx = document.getElementById('wl-exchange-section');
+    if (secEx) secEx.style.display = 'none';
+    const secCoin = document.getElementById('wl-selected-coin');
+    if (secCoin) secCoin.style.display = 'none';
     document.getElementById('wl-add-btn').disabled         = true;
     document.getElementById('wl-add-btn').style.opacity    = '0.5';
     setTimeout(() => document.getElementById('wl-search').focus(), 100);
@@ -525,100 +520,128 @@ const WatchlistScreen = {
     document.getElementById('wl-modal').style.display = 'none';
   },
 
+  /**
+   * Busca PARES tradeables, no coins.
+   *
+   * Antes el alta era en dos pasos: se buscaba una coin en el catálogo de
+   * CoinGecko y después se descubrían sus pares en vivo. Pero el universo de
+   * AXIOM son los pares operables de MEXC y CoinEx, que ya están todos en la
+   * tabla `pairs` con su volumen y sus métricas. Buscar ahí es un paso menos,
+   * es instantáneo (no llama a los exchanges) y solo ofrece lo que realmente
+   * se puede operar.
+   */
   _onSearch(q) {
     clearTimeout(this._searchTimeout);
-    if (q.length < 2) { document.getElementById('wl-search-results').innerHTML = ''; return; }
+    const el = document.getElementById('wl-search-results');
+    if (q.trim().length < 2) { if (el) el.innerHTML = ''; return; }
+
     this._searchTimeout = setTimeout(async () => {
-      const data = await API.searchCoins(q);
-      const el   = document.getElementById('wl-search-results');
-      if (!data.results.length) {
-        el.innerHTML = `<div style="color:var(--t3);font-size:13px;padding:8px 0;">Sin resultados</div>`;
-        return;
+      if (el) el.innerHTML = `<div style="color:var(--t3);font-size:12px;padding:8px 0;">
+        Buscando…</div>`;
+      try {
+        const qs = new URLSearchParams({
+          q: q.trim(), limit: 25, orden: 'volumen', dir: 'desc', min_volumen: 0,
+        });
+        const r = await fetch(`/api/pairs/?${qs}`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const data = await r.json();
+        this._resultados = data.pares || [];
+
+        if (!this._resultados.length) {
+          el.innerHTML = `<div style="color:var(--t3);font-size:13px;padding:8px 0;">
+            Ningún par coincide. Se buscan pares de MEXC y CoinEx.</div>`;
+          return;
+        }
+        el.innerHTML = this._resultados.map((p, i) => this._filaResultado(p, i)).join('');
+      } catch(e) {
+        el.innerHTML = `<div style="color:var(--re);font-size:12px;padding:8px 0;">
+          Error al buscar: ${e.message}</div>`;
       }
-      el.innerHTML = data.results.map(c => `
-        <div onclick="WatchlistScreen._selectCoin(${JSON.stringify(c).replace(/"/g,'&quot;')})"
-             style="display:flex;align-items:center;gap:8px;padding:8px;
-                    border-radius:var(--radius-s);cursor:pointer;margin-bottom:2px;"
-             onmouseover="this.style.background='var(--c2)'"
-             onmouseout="this.style.background='transparent'">
-          ${c.image ? `<img src="${c.image}" style="width:24px;height:24px;border-radius:50%;">` : ''}
-          <div>
-            <span style="font-weight:500;color:var(--t1);font-size:13px;">${c.name}</span>
-            <span style="font-family:var(--f2);font-size:10px;color:var(--t3);margin-left:6px;">${c.symbol}</span>
-          </div>
-          ${c.rank ? `<span style="font-family:var(--f2);font-size:10px;color:var(--t4);margin-left:auto;">#${c.rank}</span>` : ''}
-        </div>`).join('');
     }, 300);
   },
 
-  _selectCoin(coin) {
-    this._selectedCoin = coin;
-    this._selectedPair = null;
-    document.getElementById('wl-search').value = `${coin.name} (${coin.symbol})`;
-    document.getElementById('wl-search-results').innerHTML = '';
-    document.getElementById('wl-exchange-section').style.display = 'block';
-    document.getElementById('wl-selected-coin').style.display    = 'none';
-    document.getElementById('wl-add-btn').disabled    = true;
-    document.getElementById('wl-add-btn').style.opacity = '0.5';
+  /** Una fila de resultado: el par, su exchange, volumen y la coin si existe. */
+  _filaResultado(p, i) {
+    const c = p.coin;
+    const img = (c && c.image)
+      ? `<img src="${c.image}" style="width:24px;height:24px;border-radius:50%;flex-shrink:0;">`
+      : `<div style="width:24px;height:24px;border-radius:50%;background:var(--c3);
+           display:flex;align-items:center;justify-content:center;flex-shrink:0;
+           font-family:var(--f2);font-size:8px;color:var(--t3);">${(p.base||'').slice(0,3)}</div>`;
 
-    const pairs = coin.pairs || [];
-    const cont = document.getElementById('wl-pairs-list');
-    if (!pairs.length) {
-      cont.innerHTML = `<div style="color:var(--t3);font-size:12px;">Sin pares detectados.</div>`;
-      return;
-    }
-    cont.innerHTML = pairs.map((p, i) => {
-      const tag = p.operable
-        ? `<span style="font-size:9px;color:#56A14F;border:0.5px solid #2d5a2a;border-radius:3px;padding:1px 5px;">operable</span>`
-        : `<span style="font-size:9px;color:var(--t4);border:0.5px solid var(--w1);border-radius:3px;padding:1px 5px;">seguimiento</span>`;
-      return `<button onclick="WatchlistScreen._selectPair(${i})" id="wl-pair-${i}"
-        style="display:flex;align-items:center;justify-content:space-between;gap:8px;
-               padding:8px 12px;border-radius:6px;border:0.5px solid var(--w1);
-               background:transparent;color:var(--t2);cursor:pointer;width:100%;text-align:left;transition:all .15s;">
-        <span style="font-family:var(--f2);font-size:12px;">${p.base}/${p.quote}
-          <span style="color:var(--t3);text-transform:uppercase;margin-left:6px;">${p.exchange}</span></span>
-        ${tag}
-      </button>`;
-    }).join('');
+    const nombre = p.tiene_info && c
+      ? c.nombre
+      : `<span style="font-style:italic;color:var(--t3);">sin información</span>`;
+
+    const vol = p.volumen_24h != null
+      ? `$${AXIOM.Fmt.volumen(p.volumen_24h)}`
+      : '—';
+
+    return `
+      <div id="wl-res-${i}" onclick="WatchlistScreen._selectResultado(${i})"
+           style="display:flex;align-items:center;gap:10px;padding:8px 10px;
+                  border:0.5px solid transparent;border-radius:var(--radius-s);
+                  cursor:pointer;margin-bottom:2px;"
+           onmouseover="if(!this.dataset.sel)this.style.background='var(--c2)'"
+           onmouseout="if(!this.dataset.sel)this.style.background='transparent'">
+        ${img}
+        <div style="min-width:0;flex:1;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-family:var(--f2);font-weight:600;color:var(--t1);
+              font-size:13px;">${p.par}</span>
+            <span style="font-family:var(--f2);font-size:10px;color:var(--t3);
+              text-transform:uppercase;">${p.exchange}</span>
+          </div>
+          <div style="font-size:11px;color:var(--t2);overflow:hidden;
+            text-overflow:ellipsis;white-space:nowrap;">${nombre}</div>
+        </div>
+        <div style="text-align:right;flex-shrink:0;">
+          <div style="font-family:var(--f2);font-size:11px;color:var(--t2);">${vol}</div>
+          ${c && c.rank ? `<div style="font-family:var(--f2);font-size:9px;
+            color:var(--t4);">#${c.rank}</div>` : ''}
+        </div>
+      </div>`;
   },
 
-  _selectPair(idx) {
-    const pairs = this._selectedCoin.pairs || [];
-    const p = pairs[idx];
+  /** Marca el par elegido y habilita el botón de agregar. */
+  _selectResultado(i) {
+    const p = (this._resultados || [])[i];
     if (!p) return;
-    this._selectedPair = p;
-    (this._selectedCoin.pairs || []).forEach((_, i) => {
-      const btn = document.getElementById(`wl-pair-${i}`);
-      if (!btn) return;
-      const sel = i === idx;
-      btn.style.borderColor = sel ? 'var(--cy)' : 'var(--w1)';
-      btn.style.background  = sel ? 'rgba(37,99,235,0.12)' : 'transparent';
+    this._parElegido = p;
+
+    (this._resultados || []).forEach((_, j) => {
+      const el = document.getElementById(`wl-res-${j}`);
+      if (!el) return;
+      const sel = j === i;
+      el.dataset.sel = sel ? '1' : '';
+      el.style.borderColor = sel ? 'var(--cy)' : 'transparent';
+      el.style.background  = sel ? 'rgba(201,168,76,0.10)' : 'transparent';
     });
-    document.getElementById('wl-add-btn').disabled = false;
-    document.getElementById('wl-add-btn').style.opacity = '1';
+
+    const btn = document.getElementById('wl-add-btn');
+    if (btn) { btn.disabled = false; btn.style.opacity = '1'; }
   },
 
   async _confirmAdd() {
-    if (!this._selectedCoin) return;
+    const p = this._parElegido;
+    if (!p) return;
     const btn = document.getElementById('wl-add-btn');
     btn.disabled = true; btn.textContent = 'Agregando...';
     try {
-      const p = this._selectedPair;
+      // El par ya trae todo lo necesario: no hace falta resolver nada más.
+      // `coin_id` puede ser null —hay pares operables que CoinGecko no indexa—
+      // y eso es válido: el par existe igual.
       await this._addPair({
-        coin_id: this._selectedCoin.id,
+        coin_id: p.coin ? p.coin.id : null,
         base: p.base, quote: p.quote,
-        exchange: p.exchange, pair_symbol: p.pair_symbol,
+        exchange: p.exchange, pair_symbol: p.par,
       });
       this._closeModal();
       await this._loadList();
     } catch(e) {
-      if (e.status === 409 || (e.message || '').includes('409')) {
-        btn.textContent = 'Ya está en la lista';
-        setTimeout(() => { btn.textContent = 'Agregar'; btn.disabled = false; }, 2000);
-      } else {
-        btn.textContent = 'Error';
-        setTimeout(() => { btn.textContent = 'Agregar'; btn.disabled = false; }, 2000);
-      }
+      const ya = e.status === 409 || (e.message || '').includes('409');
+      btn.textContent = ya ? 'Ya está en la lista' : 'Error';
+      setTimeout(() => { btn.textContent = 'Agregar'; btn.disabled = false; }, 2000);
     }
   },
 

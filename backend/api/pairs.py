@@ -115,6 +115,7 @@ async def estado_velas(request: Request):
 @router.get("/")
 async def listar(
     request: Request,
+    q: str = Query("", description="Búsqueda por texto: símbolo del par, base o nombre de la coin"),
     quote: str = Query("", description="Filtrar por moneda de cotización: BTC, USDT…"),
     exchange: str = Query("", description="Filtrar por exchange: mexc, coinex"),
     min_volumen: float = Query(0, description="Volumen 24h mínimo en USD"),
@@ -146,6 +147,12 @@ async def listar(
 
     if solo_tradeables:
         where.append("p.tradeable")
+    if q:
+        # Busca en el símbolo del par, en la base y en el nombre de la coin:
+        # el usuario puede escribir "ONT", "ONTBTC" u "Ontology".
+        patron = _arg(f"%{q.strip()}%")
+        where.append(f"(p.pair_symbol ILIKE {patron} OR p.base ILIKE {patron} "
+                     f"OR c.name ILIKE {patron})")
     if quote:
         where.append(f"p.quote = {_arg(quote.upper())}")
     if exchange:
