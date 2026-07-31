@@ -28,6 +28,20 @@ _NO_RANKEABLES = {
     "wrapped": "derivado",          # replica a su subyacente
 }
 
+# Umbrales de relevancia para entrar al ranking de fuerza. Ambos son
+# necesarios: uno mide si el agregado tiene sentido estadístico, el otro si
+# mover ese sector significa algo en el mercado.
+#
+# Sin esto, un sector de 12 coins y el 0,01% de la capitalización encabezaba el
+# ranking igual que uno de 400 coins — y decía muy poco: con tan pocos activos,
+# el agregado es prácticamente el movimiento de uno solo.
+#
+# Los que no llegan NO se ocultan: aparecen con todos sus datos y su variación,
+# pero sin puesto en el ranking. Esconderlos sería perder información;
+# rankearlos de igual a igual sería engañoso.
+_MIN_COINS_RANKING = 10      # cantidad mínima de coins en el sector
+_MIN_PESO_RANKING  = 0.05    # % mínimo de la capitalización total del mercado
+
 
 class Mercado(Composable):
     def __init__(self, pool):
@@ -189,8 +203,9 @@ class Mercado(Composable):
             "poco en el ponderado); si es NEGATIVA, se movieron las GRANDES y "
             "las chicas quedaron atrás; si es cercana a cero, el movimiento fue "
             "parejo. Además: market_cap, peso_pct, coin_count, `clasificado`, "
-            "lectura (fuerte/neutral/débil, o `sin_clasificar`) y fuerza_rank "
-            "(null para los no clasificados)"
+            "lectura (fuerte/neutral/débil, `muestra_chica` o "
+            "`sin_clasificar`) y fuerza_rank (null para los que no entran al "
+            "ranking)"
         ),
         mide=(
             "por cada supercategoría: la suma de capitalizaciones; la variación "
@@ -206,7 +221,12 @@ class Mercado(Composable):
             "criterio elegido, no una constante del mercado"
         ),
         no_sabe=(
-            "si la fuerza sectorial se sostendrá; el umbral de ±3% es "
+            "si un sector chico se comportará como sugiere su agregado: los "
+            "que tienen menos de 10 coins o menos del 0,05% del mercado se "
+            "devuelven con lectura `muestra_chica` y sin puesto en el ranking, "
+            "porque con tan pocos activos el promedio es prácticamente el "
+            "movimiento de uno solo. "
+            "Tampoco sabe si la fuerza sectorial se sostendrá; el umbral de ±3% es "
             "calibrable y otro valor daría otras etiquetas. La clasificación "
             "por supercategoría es de AXIOM sobre las categorías de CoinGecko: "
             "una coin puede pertenecer razonablemente a más de un sector y solo "
@@ -220,7 +240,11 @@ class Mercado(Composable):
         ),
         fuente="tabla `coins` (sync desde CoinGecko cada 6 h)",
         metodo=(
-            "agregación SQL por supercategoría. La variación es un promedio "
+            "agregación SQL por supercategoría. Solo entran al ranking los "
+            "sectores con al menos 10 coins Y 0,05% de la capitalización "
+            "total: ambos umbrales son necesarios, uno mide si el agregado "
+            "tiene sentido estadístico y el otro si el sector pesa en el "
+            "mercado. La variación es un promedio "
             "PONDERADO por capitalización: SUM(cambio × market_cap) / "
             "SUM(market_cap). Se usa ponderado —y no promedio simple— porque el "
             "simple daba lecturas equivocadas: una micro-cap con +8.739% "
@@ -297,6 +321,13 @@ class Mercado(Composable):
                 "dispersion":     _r(s7 - p7) if (s7 is not None and p7 is not None) else None,
                 "coin_count":     r["coin_count"],
                 "clasificado":    clasificado,
+                # Un sector puede estar bien clasificado y aun así no tener
+                # peso suficiente para que su ranking signifique algo.
+                "muestra_suficiente": (
+                    clasificado
+                    and r["coin_count"] >= _MIN_COINS_RANKING
+                    and pct >= _MIN_PESO_RANKING
+                ),
                 "lectura":        self._lectura_sector(p7) if clasificado
                                   else _NO_RANKEABLES[sc],
             })
@@ -309,23 +340,39 @@ class Mercado(Composable):
             c24 = c["change_24h"] if c["change_24h"] is not None else -9999
             return (c7, c24)
 
-        clasificadas = sorted([c for c in categorias if c["clasificado"]],
-                              key=_clave, reverse=True)
-        for i, c in enumerate(clasificadas, start=1):
+        rankeables = sorted([c for c in categorias if c["muestra_suficiente"]],
+                            key=_clave, reverse=True)
+        for i, c in enumerate(rankeables, start=1):
             c["fuerza_rank"] = i
 
-        sin_clasificar = [c for c in categorias if not c["clasificado"]]
-        for c in sin_clasificar:
+        # Los que no rankean se devuelven igual, ordenados por peso: primero
+        # los sectores reales pero chicos, después los no clasificables.
+        resto = sorted([c for c in categorias if not c["muestra_suficiente"]],
+                       key=lambda c: (c["clasificado"], c["market_cap"]),
+                       reverse=True)
+        for c in resto:
             c["fuerza_rank"] = None
+            if c["clasificado"]:
+                # Se conserva su variación, pero la lectura avisa que el
+                # agregado se apoya en muy pocos activos o muy poco capital.
+                c["lectura"] = "muestra_chica"
 
-        ordenadas = clasificadas + sin_clasificar
+        ordenadas = rankeables + resto
 
         return {
-            "categorias":       ordenadas,
-            "total_mcap":       total_mcap,
-            "sectores_rankeados": len(clasificadas),
-            "criterio": ("variación 7d ponderada por capitalización "
-                         "(desempate 24h ponderado); 'otros' no se rankea"),
+            "categorias":         ordenadas,
+            "total_mcap":         total_mcap,
+            "sectores_rankeados": len(rankeables),
+            "umbral_ranking": {
+                "min_coins": _MIN_COINS_RANKING,
+                "min_peso_pct": _MIN_PESO_RANKING,
+            },
+            "criterio": (
+                f"variación 7d ponderada por capitalización (desempate 24h "
+                f"ponderado). Solo rankean los sectores con al menos "
+                f"{_MIN_COINS_RANKING} coins y {_MIN_PESO_RANKING}% del "
+                f"mercado; el resto se devuelve sin puesto."
+            ),
         }
 
     async def sector(self, supercategoria: str) -> dict:
