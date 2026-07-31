@@ -50,6 +50,19 @@
       const def = Reg.get(widgetId);
       if (!def) { console.error('[widgets] no registrado:', widgetId); return null; }
 
+      // Si YA está montado el mismo widget acá, no se desmonta: se actualizan
+      // los datos y se vuelve a pintar. Desmontar vacía el contenedor, su alto
+      // colapsa a cero y la página salta — se notaba al recargar la watchlist
+      // después de agregar un par.
+      const previa = _montados.get(el);
+      if (previa && previa.def.id === widgetId) {
+        Object.assign(previa.args, opts.args || {});
+        if (opts.datos) previa.datos = opts.datos;
+        if (opts.epistemico) previa.epistemico = opts.epistemico;
+        this._render(previa);
+        return previa;
+      }
+
       const contexto = opts.contexto || 'pantalla';
       if (!def.contextos.includes(contexto)) {
         console.warn(`[widgets] ${widgetId} no declara el contexto '${contexto}'`);

@@ -368,7 +368,12 @@ const WatchlistScreen = {
             style="width:100%;padding:8px 12px;border-radius:var(--radius-s);
                    border:0.5px solid var(--w1);background:var(--c2);
                    color:var(--t1);font-size:13px;margin-bottom:8px;box-sizing:border-box;">
-          <div id="wl-search-results" style="margin-bottom:12px;"></div>
+          <!-- Alto FIJO: sin esto el modal crece y se encoge con cada
+               búsqueda, y los botones de abajo se mueven bajo el cursor. -->
+          <div id="wl-search-results"
+               style="height:280px;overflow-y:auto;margin-bottom:12px;
+                      border:0.5px solid var(--w1);border-radius:var(--radius-s);
+                      padding:6px;background:var(--c1);"></div>
           <div id="wl-exchange-section" style="display:none;">
             <div style="font-family:var(--f2);font-size:10px;color:var(--t3);
                         text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px;">Par disponible</div>
@@ -506,7 +511,7 @@ const WatchlistScreen = {
     this._resultados = [];
     document.getElementById('wl-modal').style.display      = 'flex';
     document.getElementById('wl-search').value             = '';
-    document.getElementById('wl-search-results').innerHTML = '';
+    document.getElementById('wl-search-results').innerHTML = this._hintBusqueda();
     const secEx = document.getElementById('wl-exchange-section');
     if (secEx) secEx.style.display = 'none';
     const secCoin = document.getElementById('wl-selected-coin');
@@ -530,14 +535,23 @@ const WatchlistScreen = {
    * es instantáneo (no llama a los exchanges) y solo ofrece lo que realmente
    * se puede operar.
    */
+  /** Mensaje centrado que ocupa el alto del contenedor, para que no salte. */
+  _hintBusqueda(texto, color) {
+    return `<div style="height:100%;display:flex;align-items:center;
+      justify-content:center;text-align:center;color:${color || 'var(--t3)'};
+      font-size:12px;padding:0 16px;line-height:1.5;">
+      ${texto || 'Escribí al menos 2 caracteres para buscar entre los pares de MEXC y CoinEx.'}
+    </div>`;
+  },
+
   _onSearch(q) {
     clearTimeout(this._searchTimeout);
     const el = document.getElementById('wl-search-results');
-    if (q.trim().length < 2) { if (el) el.innerHTML = ''; return; }
+    if (!el) return;
+    if (q.trim().length < 2) { el.innerHTML = this._hintBusqueda(); return; }
 
     this._searchTimeout = setTimeout(async () => {
-      if (el) el.innerHTML = `<div style="color:var(--t3);font-size:12px;padding:8px 0;">
-        Buscando…</div>`;
+      el.innerHTML = this._hintBusqueda('Buscando…');
       try {
         const qs = new URLSearchParams({
           q: q.trim(), limit: 25, orden: 'volumen', dir: 'desc', min_volumen: 0,
@@ -548,14 +562,13 @@ const WatchlistScreen = {
         this._resultados = data.pares || [];
 
         if (!this._resultados.length) {
-          el.innerHTML = `<div style="color:var(--t3);font-size:13px;padding:8px 0;">
-            Ningún par coincide. Se buscan pares de MEXC y CoinEx.</div>`;
+          el.innerHTML = this._hintBusqueda(
+            'Ningún par coincide. Solo se buscan pares de MEXC y CoinEx.');
           return;
         }
         el.innerHTML = this._resultados.map((p, i) => this._filaResultado(p, i)).join('');
       } catch(e) {
-        el.innerHTML = `<div style="color:var(--re);font-size:12px;padding:8px 0;">
-          Error al buscar: ${e.message}</div>`;
+        el.innerHTML = this._hintBusqueda(`Error al buscar: ${e.message}`, 'var(--re)');
       }
     }, 300);
   },
