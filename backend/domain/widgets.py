@@ -188,6 +188,34 @@ registro_widgets = RegistroWidgets()
 # ══ Declaraciones ═════════════════════════════════════════════════════════════
 
 registro_widgets.registrar(Widget(
+    id="regimen_mercado",
+    label="Régimen de mercado",
+    grupo="Mercado",
+    icono="ti-activity",
+    descripcion=(
+        "El régimen vigente en las tres temporalidades, con su convicción y "
+        "el consenso entre señales. Es la vista natural del resultado de "
+        "regimen_mercado."
+    ),
+    capacidad="regimen_mercado",
+    contextos=("pantalla", "panel", "chat", "dashboard"),
+    args_default={},
+
+    densidades={
+        # No hay columnas que recortar: lo que cambia con el espacio es la
+        # DISPOSICIÓN. En compacto las tres tarjetas van apiladas y sin los
+        # segmentos de consenso; con más ancho, en fila y completas.
+        "compacto": Densidad(hasta=560, campos=("largo", "medio", "corto")),
+        "normal":   Densidad(hasta=900, campos=("largo", "medio", "corto")),
+        "amplio":   Densidad(hasta=None, campos=("largo", "medio", "corto")),
+    },
+
+    ordenable_por=(),
+    metricas=(),
+))
+
+
+registro_widgets.registrar(Widget(
     id="canastas_sugeridas",
     label="Coins sugeridas",
     grupo="Mercado",

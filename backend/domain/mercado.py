@@ -73,12 +73,15 @@ class Mercado(Composable):
         costo="barato",
         devuelve=(
             "por cada temporalidad: régimen (ACUMULACION, ALCISTA_A, ALCISTA_B, "
-            "DISTRIBUCION, BAJISTA, LATERAL) y convicción 0-100; más la marca de "
-            "tiempo del snapshot"
+            "DISTRIBUCION, BAJISTA, LATERAL), convicción 0-100, cuántas señales "
+            "coincidieron sobre cuántas votaron, y si está confirmado; más el "
+            "precio de BTC y la marca de tiempo del snapshot"
         ),
         mide=(
-            "el último snapshot guardado: el régimen clasificado y la convicción "
-            "(0-100) para cada una de las tres temporalidades, con su timestamp"
+            "el último snapshot guardado: el régimen clasificado, la convicción "
+            "(0-100), el consenso (cuántas señales coincidieron sobre cuántas "
+            "votaron) y si está confirmado, para cada una de las tres "
+            "temporalidades; más el precio de BTC y el timestamp"
         ),
         infiere=(
             "el régimen ES una clasificación inferida: 12 señales votan y el "
@@ -108,13 +111,25 @@ class Mercado(Composable):
         if not row:
             return {}
         d = dict(row)
+
+        def _tf(nombre: str) -> dict:
+            # `consensus` y `signals_expected` permiten mostrar cuántas señales
+            # coincidieron sobre cuántas votaron: es lo que da dimensión a la
+            # convicción. Sin eso, "72%" no dice si son 9 de 12 señales o una
+            # estimación difusa.
+            return {
+                "regime":           d.get(f"regime_{nombre}"),
+                "conviction":       d.get(f"conviction_{nombre}"),
+                "consensus":        d.get(f"consensus_{nombre}"),
+                "signals_expected": d.get(f"signals_expected_{nombre}"),
+                "is_confirmed":     d.get(f"confirmed_{nombre}"),
+            }
+
         return {
-            "largo": {"regime": d.get("regime_largo"),
-                      "conviction": d.get("conviction_largo")},
-            "medio": {"regime": d.get("regime_medio"),
-                      "conviction": d.get("conviction_medio")},
-            "corto": {"regime": d.get("regime_corto"),
-                      "conviction": d.get("conviction_corto")},
+            "largo": _tf("largo"),
+            "medio": _tf("medio"),
+            "corto": _tf("corto"),
+            "btc_price": float(d["btc_price"]) if d.get("btc_price") is not None else None,
             "created_at": d.get("created_at").isoformat() if d.get("created_at") else None,
         }
 
