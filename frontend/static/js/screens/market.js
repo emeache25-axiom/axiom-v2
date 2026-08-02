@@ -159,7 +159,11 @@ const MarketScreen = {
     this._loadView(view);
   },
 
+  // Las vistas con widget no cachean HTML: el widget se remonta con datos
+  // frescos (y su propio ResizeObserver). Solo se cachea el HTML de las vistas
+  // que siguen siendo render plano.
   _isCacheValid(view) {
+    if (view === 'categories') return false;
     if (!this.cache[view] || !this.cacheTime[view]) return false;
     return (Date.now() - this.cacheTime[view]) / 1000 / 60 < this.cacheTTL[view];
   },
@@ -194,8 +198,39 @@ const MarketScreen = {
         const data = await API.getMarketOverview(this.minMcap);
         html = this._renderGeneral(data);
       } else if (view === 'categories') {
-        const data = await API.getMarketCategories();
-        html = this._renderCategories(data);
+        // El widget `mapa_sectores` consume la CAPACIDAD, no el endpoint viejo
+        // /api/market/categories. Esa diferencia importa: el endpoint no
+        // pondera por capitalización (daba lecturas invertidas), no tiene
+        // mediana ni dispersión, y rankea sectores de 12 coins igual que los
+        // de 400. Ver AXIOM_registro_capacidades.md.
+        el.innerHTML = this._refreshBtn('categories') + '<div id="market-sectores"></div>';
+        const r = await fetch('/api/capacidades/mapa_sectores', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: '{}',
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const res = await r.json();
+        const host = document.getElementById('market-sectores');
+        await AXIOM.WidgetMount.mount(host, 'mapa_sectores', {
+          datos: res.resultado,
+          contexto: 'pantalla',
+          epistemico: res.epistemico,
+        });
+
+        // El widget avisa cuando se toca un sector; acá se abre su detalle.
+        // Montado en el chat nadie escucha y no pasa nada, que es lo correcto.
+        if (!host._secBound) {
+          host._secBound = true;
+          host.addEventListener('axiom:sector-abrir', (ev) => {
+            const sc = ev.detail && ev.detail.supercategoria;
+            if (sc) this._loadDrilldown(sc);
+          });
+        }
+        this.cache[view]     = null;   // el widget se remonta, no se cachea HTML
+        this.cacheTime[view] = Date.now();
+        this.loaded[view]    = true;
+        return;
       } else if (view === 'networks') {
         const data = await API.getMarketNetworks();
         html = this._renderNetworks(data);
@@ -367,6 +402,11 @@ const MarketScreen = {
   async _loadDrilldown(supercatId) {
     const el = document.getElementById('market-content');
     if (!el) return;
+    // El drill-down reemplaza el contenido, incluido el contenedor del widget:
+    // hay que desmontarlo para que no quede su ResizeObserver observando un
+    // elemento que ya no está en el DOM.
+    const host = document.getElementById('market-sectores');
+    if (host && window.AXIOM?.WidgetMount) AXIOM.WidgetMount.unmount(host);
     const cacheKey = `${supercatId}_${this.drillLimit}`;
     if (this.drillCache[cacheKey]) { el.innerHTML = this.drillCache[cacheKey]; return; }
     el.innerHTML = `<div class="placeholder"><i class="ti ti-refresh"></i><p>Cargando...</p></div>`;
@@ -469,108 +509,14 @@ const MarketScreen = {
   },
 
   // ── Categorías ────────────────────────────────────────────────────────────
-  _renderCategories(data) {
-    const max  = data.categories[0]?.pct || 1;
-    const rows = data.categories.map(c => {
-      const cc   = c.change_24h > 0 ? '#56A14F' : c.change_24h < 0 ? '#D93B3B' : '#78716C';
-      const sign = c.change_24h > 0 ? '+' : '';
-      return `
-      <div style="margin-bottom:14px;">
-        <div style="display:grid;grid-template-columns:1fr 70px 70px 60px 90px;gap:8px;
-                    align-items:center;margin-bottom:5px;">
-          <div style="display:flex;align-items:center;gap:6px;min-width:0;">
-            <span onclick="MarketScreen._loadDrilldown('${c.id}')"
-                  style="font-size:13px;font-weight:500;color:#F5F0EB;white-space:nowrap;
-                         overflow:hidden;text-overflow:ellipsis;cursor:pointer;transition:color .15s;"
-                  onmouseover="this.style.color='${c.color}'" onmouseout="this.style.color='#F5F0EB'">
-              ${c.label} <i class="ti ti-chevron-right" style="font-size:11px;opacity:.5;"></i>
-            </span>
-            <div style="position:relative;display:inline-flex;flex-shrink:0;" class="info-wrap">
-              <i class="ti ti-info-circle" style="font-size:13px;color:var(--t3);cursor:pointer;" aria-hidden="true"></i>
-              <div class="info-tooltip"
-                   style="display:none;position:absolute;left:0;top:24px;z-index:200;
-                          width:min(240px,calc(100vw - 40px));padding:10px 12px;
-                          background:#1A1917;border:0.5px solid ${c.color};border-radius:8px;
-                          font-size:11px;color:var(--t2);line-height:1.5;box-shadow:0 4px 16px rgba(0,0,0,.4);">
-                <div style="font-size:12px;font-weight:600;color:#F5F0EB;margin-bottom:5px;">${c.label}</div>
-                ${c.info}
-              </div>
-            </div>
-          </div>
-          <span style="font-family:var(--f2);font-size:11px;color:${cc};text-align:right;">${sign}${c.change_24h.toFixed(1)}%</span>
-          <span style="font-family:var(--f2);font-size:11px;text-align:right;
-                       color:${(c.change_7d||0)>0?'#56A14F':(c.change_7d||0)<0?'#D93B3B':'#78716C'};">
-            ${(c.change_7d||0)>0?'+':''}${(c.change_7d||0).toFixed(1)}%
-          </span>
-          <span style="font-family:var(--f2);font-size:11px;color:var(--t3);text-align:right;">${c.pct}%</span>
-          <span style="font-family:var(--f2);font-size:11px;color:var(--t3);text-align:right;">${this._fmt(c.mcap)}</span>
-        </div>
-        <div style="height:5px;background:var(--c3);border-radius:3px;">
-          <div style="height:5px;width:${(c.pct/max*100).toFixed(1)}%;background:${c.color};border-radius:3px;transition:width .4s;"></div>
-        </div>
-      </div>`;
-    }).join('');
-    const catHeader = `
-    <div style="display:grid;grid-template-columns:1fr 70px 70px 60px 90px;gap:8px;
-                font-family:var(--f2);font-size:9px;color:var(--t3);
-                text-transform:uppercase;letter-spacing:.08em;
-                padding-bottom:6px;border-bottom:1px solid var(--w1);margin-bottom:12px;">
-      <span>Categoría</span>
-      <span style="text-align:right;">24h</span>
-      <span style="text-align:right;">7d</span>
-      <span style="text-align:right;">%MCap</span>
-      <span style="text-align:right;">MCap</span>
-    </div>`;
-    return this._refreshBtn('categories') + `
-    <div class="card" style="border-top:2px solid #2563EB;border-left:1px solid #2563EB40;border-right:1px solid #2563EB40;border-bottom:1px solid #2563EB40;">
-      ${this._sectionHeader('ti-chart-pie','Distribución por categoría','#2563EB')}
-      ${catHeader}
-      ${rows}
-    </div>`;
-  },
-
-  // ── Redes ─────────────────────────────────────────────────────────────────
-  _renderNetworkRow(n, max) {
-    return `
-    <div style="margin-bottom:14px;">
-      <div style="display:grid;grid-template-columns:1fr 70px 70px 60px 90px;gap:8px;
-                  align-items:center;margin-bottom:5px;">
-        <div style="display:flex;align-items:center;gap:6px;min-width:0;">
-          <div style="width:10px;height:10px;border-radius:50%;background:${n.color};flex-shrink:0;"></div>
-          <span onclick="MarketScreen._loadNetworkDrilldown('${n.id}')"
-                style="font-size:13px;font-weight:500;color:#F5F0EB;white-space:nowrap;
-                       overflow:hidden;text-overflow:ellipsis;cursor:pointer;transition:color .15s;"
-                onmouseover="this.style.color='${n.color}'" onmouseout="this.style.color='#F5F0EB'">
-            ${n.label} <i class="ti ti-chevron-right" style="font-size:11px;opacity:.5;"></i>
-          </span>
-          <div style="position:relative;display:inline-flex;flex-shrink:0;" class="info-wrap">
-            <i class="ti ti-info-circle" style="font-size:13px;color:var(--t3);cursor:pointer;" aria-hidden="true"></i>
-            <div class="info-tooltip"
-                 style="display:none;position:absolute;left:0;top:24px;z-index:200;
-                        width:min(240px,calc(100vw - 40px));padding:10px 12px;
-                        background:#1A1917;border:0.5px solid ${n.color};border-radius:8px;
-                        font-size:11px;color:var(--t2);line-height:1.5;box-shadow:0 4px 16px rgba(0,0,0,.4);">
-              <div style="font-size:12px;font-weight:600;color:#F5F0EB;margin-bottom:5px;">${n.label}</div>
-              ${n.info}
-            </div>
-          </div>
-        </div>
-        <span style="font-family:var(--f2);font-size:11px;text-align:right;
-                     color:${n.change_24h>0?'#56A14F':n.change_24h<0?'#D93B3B':'#78716C'};">
-          ${n.change_24h>0?'+':''}${(n.change_24h||0).toFixed(1)}%
-        </span>
-        <span style="font-family:var(--f2);font-size:11px;text-align:right;
-                     color:${(n.change_7d||0)>0?'#56A14F':(n.change_7d||0)<0?'#D93B3B':'#78716C'};">
-          ${(n.change_7d||0)>0?'+':''}${(n.change_7d||0).toFixed(1)}%
-        </span>
-        <span style="font-family:var(--f2);font-size:11px;color:var(--t3);text-align:right;">${n.pct}%</span>
-        <span style="font-family:var(--f2);font-size:11px;color:var(--t3);text-align:right;">${this._fmt(n.mcap)}</span>
-      </div>
-      <div style="height:5px;background:var(--c3);border-radius:3px;">
-        <div style="height:5px;width:${(n.pct/max*100).toFixed(1)}%;background:${n.color};border-radius:3px;transition:width .4s;"></div>
-      </div>
-    </div>`;
-  },
+  // _renderCategories se movió al widget `mapa_sectores`
+  // (frontend/static/js/widgets/mapa-sectores.js).
+  //
+  // No fue solo un refactor: esta vista consumía /api/market/categories, que
+  // no pondera por capitalización, no calcula mediana ni dispersión, y no
+  // aplica el umbral de relevancia del ranking. Mostraba lecturas que el
+  // backend ya había corregido — por ejemplo, sectores marcados como fuertes
+  // cuando por capital estaban cayendo.
 
   _renderNetworks(data) {
     const max    = data.networks[0]?.pct || 1;

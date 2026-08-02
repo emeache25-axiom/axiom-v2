@@ -188,6 +188,38 @@ registro_widgets = RegistroWidgets()
 # ══ Declaraciones ═════════════════════════════════════════════════════════════
 
 registro_widgets.registrar(Widget(
+    id="mapa_sectores",
+    label="Mapa de sectores",
+    grupo="Mercado",
+    icono="ti-chart-pie",
+    descripcion=(
+        "El mercado por supercategoría con su fuerza relativa: variación "
+        "ponderada por capitalización, mediana, dispersión y peso. Separa los "
+        "sectores que rankean de los que no tienen muestra suficiente."
+    ),
+    capacidad="mapa_sectores",
+    contextos=("pantalla", "panel", "chat", "dashboard"),
+    args_default={},
+
+    densidades={
+        # Lo mínimo para saber qué se mueve: el sector, cuánto varió el capital
+        # y la lectura.
+        "compacto": Densidad(hasta=520, campos=("sector", "pond", "lectura")),
+        # La MEDIANA es lo que revela si el movimiento fue parejo o lo
+        # traccionaron unas pocas grandes — merece estar apenas hay espacio.
+        "normal":   Densidad(hasta=900, campos=(
+            "sector", "pond", "mediana", "peso", "lectura")),
+        "amplio":   Densidad(hasta=None, campos=(
+            "sector", "pond", "mediana", "disp", "peso", "coins", "lectura")),
+    },
+
+    # El orden lo define el ranking de fuerza del propio mapa.
+    ordenable_por=(),
+    metricas=(),
+))
+
+
+registro_widgets.registrar(Widget(
     id="regimen_mercado",
     label="Régimen de mercado",
     grupo="Mercado",
