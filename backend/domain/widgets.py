@@ -283,6 +283,62 @@ registro_widgets.registrar(Widget(
 
 
 registro_widgets.registrar(Widget(
+    id="libro_orden",
+    label="Libro de órdenes",
+    grupo="Par",
+    icono="ti-align-justified",
+    descripcion=(
+        "El libro de órdenes de un par: compras (bids) y ventas (asks) con "
+        "barras de profundidad y el spread. Es la vista natural del resultado "
+        "de libro_par."
+    ),
+    capacidad="libro_par",
+    contextos=("pantalla", "panel", "chat", "dashboard"),
+    args_default={},
+
+    densidades={
+        # El libro no cambia de columnas con el ancho: siempre precio+cantidad
+        # por lado. Las tres densidades son iguales; el contenedor se adapta solo.
+        "compacto": Densidad(hasta=520, campos=("libro",)),
+        "normal":   Densidad(hasta=900, campos=("libro",)),
+        "amplio":   Densidad(hasta=None, campos=("libro",)),
+    },
+
+    ordenable_por=(),
+    metricas=(),
+))
+
+
+registro_widgets.registrar(Widget(
+    id="grafico_velas",
+    label="Gráfico de velas",
+    grupo="Par",
+    icono="ti-chart-candle",
+    descripcion=(
+        "Un mini-gráfico de velas (candlesticks) de un par en una temporalidad. "
+        "Es la vista natural del resultado de velas_par: cuando se piden 'las "
+        "velas' de algo, se quiere ver el gráfico, no una tabla de números."
+    ),
+    capacidad="velas_par",
+    contextos=("pantalla", "panel", "chat", "dashboard"),
+    args_default={},
+
+    densidades={
+        # Un gráfico no cambia de columnas con el ancho: se adapta solo (LWC
+        # redimensiona el canvas). Las tres densidades son iguales; lo único que
+        # varía es el ancho del contenedor, que el propio chart sigue. Mismo
+        # criterio que regimen_mercado.
+        "compacto": Densidad(hasta=520, campos=("grafico",)),
+        "normal":   Densidad(hasta=900, campos=("grafico",)),
+        "amplio":   Densidad(hasta=None, campos=("grafico",)),
+    },
+
+    ordenable_por=(),
+    metricas=(),
+))
+
+
+registro_widgets.registrar(Widget(
     id="lista_watchlist",
     label="Watchlist",
     grupo="Seguimiento",
