@@ -112,7 +112,7 @@
     return filas.join('');
   }
 
-  NS.Widgets.render('libro_par', {
+  NS.Widgets.render('libro_orden', {
 
     render(datos, ctx) {
       const d = (datos && (datos.resultado || datos)) || {};
