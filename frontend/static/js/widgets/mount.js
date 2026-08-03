@@ -218,6 +218,10 @@
         densidad,
         contexto:   inst.contexto,
         ancho,
+        // Los datos crudos, para los widgets que dibujan en mount() sobre un
+        // canvas (ej. un gráfico LWC) en vez de en el HTML de render(): esos no
+        // pueden leer los datos del string, los necesitan en el ctx de mount.
+        datos:      inst.datos,
         // Los campos se resuelven acá, no en el widget: la decisión de qué
         // información sobrevive en cada tamaño está declarada en el backend.
         campos:     Reg.camposPara(inst.def.id, densidad,
