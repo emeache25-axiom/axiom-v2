@@ -3,19 +3,21 @@
  * ────────────────────────────────────────────────────────────────────────────
  * Mesa de análisis conversacional: se le pregunta a AXIOM en lenguaje natural
  * y Kepler responde consultando las capacidades del propio sistema (tool use).
+ * Cuando existe un widget para la capacidad ejecutada, se monta con los datos
+ * ya analizados (ver `_montarWidgets`).
  *
- * Cambios respecto de v3:
- *   1. ALTURA. La pantalla ocupa el alto disponible (mismo patrón que charts:
- *      `#screen-chat.active` pasa a flex + height calculada). Antes el
- *      `height:100%` interno no resolvía porque el contenedor padre no define
- *      altura, y el chat arrancaba aplastado.
- *   2. MARKDOWN → HTML. El modelo responde en Markdown; antes se pintaba con
+ * Cambios respecto de v3 (dos, y NINGUNO toca el montaje de widgets):
+ *   1. MARKDOWN → HTML. El modelo responde en Markdown; antes se pintaba con
  *      `_escapar()` + `white-space:pre-wrap`, así que se veían los asteriscos
  *      crudos. Ahora hay un conversor propio (sin dependencias: el frontend no
  *      tiene build) que emite listas, tablas, títulos, código y citas.
+ *   2. ALTURA. El shell arrancaba aplastado porque `height:100%` no resuelve
+ *      sin un padre con altura. Se le da altura MÍNIMA al shell, sin darle
+ *      scroll propio a `#chat-msgs`: la PÁGINA sigue siendo la que scrollea
+ *      —de eso depende el `scrollIntoView` del montaje de widgets—.
  *
  * Seguridad: el texto se escapa SIEMPRE antes de aplicar Markdown. Las únicas
- * etiquetas que llegan al DOM son las que genera este archivo — nada de lo que
+ * etiquetas que llegan al DOM son las que genera el conversor — nada de lo que
  * mande el modelo se interpreta como HTML.
  * ──────────────────────────────────────────────────────────────────────────── */
 
@@ -36,9 +38,9 @@
 
   const SUGERENCIAS = [
     '¿Cómo está el mercado hoy?',
+    'Pares /BTC que oscilen con spread bajo',
+    '¿Qué sectores están fuertes?',
     '¿Cómo viene ONT?',
-    'Analizá ethereum',
-    '¿Bitcoin está fuerte o débil?',
   ];
 
   /* ══════════════════════════════════════════════════════════════════════════
@@ -46,10 +48,9 @@
      ──────────────────────────────────────────────────────────────────────────
      Markdown acotado y controlado: solo lo que el modelo realmente emite.
      Sin librería externa, para no meterle dependencias a un frontend sin build.
-
      Soporta: títulos, negrita, itálica, tachado, código en línea y en bloque,
      listas (anidadas, ordenadas y no), tablas con alineación, citas, reglas
-     horizontales y enlaces.
+     horizontales y enlaces. Escapa SIEMPRE antes de aplicar formato.
      ══════════════════════════════════════════════════════════════════════════ */
   const MD = (function () {
 
@@ -61,7 +62,6 @@
         .replace(/"/g, '&quot;');
     }
 
-    // ── Nivel línea: énfasis, código, enlaces ────────────────────────────────
     function inline(txt) {
       // El código en línea se aparta ANTES de escapar, para que ningún otro
       // reemplazo lo toque (un `a*b*c` no debe volverse itálica).
@@ -79,7 +79,7 @@
       s = s.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
       s = s.replace(/__([^_\n]+)__/g, '<strong>$1</strong>');
       // El contenido no puede empezar ni terminar con espacio: así "3 * 4 * 5"
-      // sigue siendo una multiplicación y no una itálica.
+      // sigue siendo multiplicación y no una itálica.
       s = s.replace(/(^|[^*\w])\*(?!\s)([^*\n]*[^*\s])\*(?!\w)/g, '$1<em>$2</em>');
       s = s.replace(/(^|[^_\w])_(?!\s)([^_\n]*[^_\s])_(?!\w)/g, '$1<em>$2</em>');
       s = s.replace(/~~([^~\n]+)~~/g, '<del>$1</del>');
@@ -87,7 +87,6 @@
       return s.replace(/\u0000(\d+)\u0000/g, (m, n) => '<code>' + esc(codigos[+n]) + '</code>');
     }
 
-    // ── Reconocedores de bloque ──────────────────────────────────────────────
     const RX_FENCE  = /^\s*```/;
     const RX_TITULO = /^\s{0,3}(#{1,6})\s+(.+)$/;
     const RX_REGLA  = /^\s{0,3}(-{3,}|_{3,}|\*{3,})\s*$/;
@@ -111,7 +110,6 @@
                  .split('|').map((c) => c.trim());
     }
 
-    // ── Listas (con anidado por sangría) ─────────────────────────────────────
     function lista(lineas, i) {
       const primero  = lineas[i].match(RX_ITEM);
       const sangria  = primero[1].length;
@@ -121,7 +119,6 @@
       while (i < lineas.length) {
         const l = lineas[i];
 
-        // Línea en blanco: solo se tolera si la lista sigue después.
         if (!l.trim()) {
           let j = i + 1;
           while (j < lineas.length && !lineas[j].trim()) j++;
@@ -132,7 +129,6 @@
 
         const m = l.match(RX_ITEM);
         if (!m) {
-          // Continuación del ítem anterior (párrafo sangrado).
           if (items.length && l.search(/\S/) > sangria) {
             items[items.length - 1].sub.push(l);
             i++; continue;
@@ -140,12 +136,12 @@
           break;
         }
         if (m[1].length < sangria) break;
-        if (m[1].length > sangria) {                 // sublista → al ítem previo
+        if (m[1].length > sangria) {
           if (!items.length) break;
           items[items.length - 1].sub.push(l);
           i++; continue;
         }
-        if (/\d/.test(m[2]) !== ordenada) break;     // cambia el tipo de lista
+        if (/\d/.test(m[2]) !== ordenada) break;
 
         items.push({ texto: m[3], sub: [] });
         i++;
@@ -165,17 +161,14 @@
       return { html: '<' + tag + '>' + cuerpo + '</' + tag + '>', i: i };
     }
 
-    // ── Parser de bloques ────────────────────────────────────────────────────
     function bloques(lineas) {
       const out = [];
       let i = 0;
 
       while (i < lineas.length) {
         const linea = lineas[i];
-
         if (!linea.trim()) { i++; continue; }
 
-        // Código en bloque
         if (RX_FENCE.test(linea)) {
           const buf = [];
           i++;
@@ -185,10 +178,8 @@
           continue;
         }
 
-        // Regla horizontal
         if (RX_REGLA.test(linea)) { out.push('<hr>'); i++; continue; }
 
-        // Título
         const t = linea.match(RX_TITULO);
         if (t) {
           const n = Math.min(t[1].length + 2, 6);   // ## del modelo → h4 acá
@@ -196,7 +187,6 @@
           i++; continue;
         }
 
-        // Tabla
         if (esTabla(lineas, i)) {
           const cab = celdas(lineas[i]);
           const ali = celdas(lineas[i + 1]).map((s) =>
@@ -216,19 +206,15 @@
           continue;
         }
 
-        // Cita
         if (RX_CITA.test(linea)) {
           const buf = [];
-          while (i < lineas.length && (RX_CITA.test(lineas[i]) || (lineas[i].trim() && buf.length))) {
-            if (!RX_CITA.test(lineas[i])) break;
-            buf.push(lineas[i].replace(RX_CITA, ''));
-            i++;
+          while (i < lineas.length && RX_CITA.test(lineas[i])) {
+            buf.push(lineas[i].replace(RX_CITA, '')); i++;
           }
           out.push('<blockquote>' + bloques(buf) + '</blockquote>');
           continue;
         }
 
-        // Lista
         if (RX_ITEM.test(linea)) {
           const r = lista(lineas, i);
           out.push(r.html);
@@ -236,7 +222,6 @@
           continue;
         }
 
-        // Párrafo
         const buf = [];
         while (i < lineas.length && lineas[i].trim()
                && !esInicioDeBloque(lineas[i]) && !esTabla(lineas, i)) {
@@ -259,27 +244,23 @@
   })();
 
   /* ══════════════════════════════════════════════════════════════════════════
-     Estilos de la pantalla
+     Estilos — altura del shell + tipografía de los mensajes de Kepler
      ──────────────────────────────────────────────────────────────────────────
-     Van acá y no en layout.css para que la pantalla sea autocontenida: el
-     archivo trae su altura y su tipografía. Si más adelante se muda a CSS
-     propio, se corta este bloque y listo.
+     Van acá (no en layout.css) para que la pantalla sea autocontenida.
+     La PÁGINA scrollea, no `#chat-msgs`: de eso depende el scrollIntoView del
+     montaje de widgets. Por eso el shell recibe min-height, no height fija.
      ══════════════════════════════════════════════════════════════════════════ */
   const CSS = `
-#screen-chat.active{
+#screen-chat.active{display:block;}
+.chat-shell{
   display:flex;flex-direction:column;
-  height:calc(100vh - var(--nav-h) - 48px);
+  min-height:calc(100vh - var(--nav-h) - 48px);
 }
 @media(max-width:640px){
-  #screen-chat.active{height:calc(100vh - var(--nav-h) - var(--bot-h) - 32px);}
+  .chat-shell{min-height:calc(100vh - var(--nav-h) - var(--bot-h) - 32px);}
 }
-.chat-shell{
-  display:flex;flex-direction:column;flex:1;min-height:0;
-  width:100%;max-width:860px;margin:0 auto;
-}
-#chat-msgs{flex:1;min-height:0;overflow-y:auto;}
+#chat-msgs{flex:1;}
 
-/* Cuerpo de un mensaje de Kepler: acá vive el HTML convertido */
 .kmsg{font-size:13px;line-height:1.6;color:${C.text};}
 .kmsg > :first-child{margin-top:0;}
 .kmsg > :last-child{margin-bottom:0;}
@@ -314,19 +295,17 @@
   padding:10px 12px;margin:10px 0;overflow-x:auto;
 }
 .kmsg pre code{background:none;padding:0;color:${C.text};font-size:12px;line-height:1.5;}
+.kmsg .tabla-wrap{overflow-x:auto;margin:10px 0;}
 .kmsg table{
-  border-collapse:collapse;width:100%;margin:10px 0;
+  border-collapse:collapse;width:100%;
   font-family:var(--f2, 'IBM Plex Mono', monospace);font-size:11.5px;
 }
 .kmsg th,.kmsg td{border:0.5px solid ${C.border};padding:6px 9px;}
 .kmsg th{background:#211E1C;font-weight:600;color:${C.text};white-space:nowrap;}
 .kmsg td{color:#DED6CD;}
 .kmsg tbody tr:nth-child(even){background:rgba(255,255,255,.018);}
-.kmsg .tabla-wrap{overflow-x:auto;}
 
-/* Mensaje del usuario: texto plano, sin Markdown */
 .umsg{font-size:13px;line-height:1.55;color:#fff;white-space:pre-wrap;}
-
 .chat-sug:hover{border-color:${C.muted};color:${C.text};}
 `;
 
@@ -338,26 +317,35 @@
     document.head.appendChild(st);
   }
 
-  /* ══════════════════════════════════════════════════════════════════════════
-     Pantalla
-     ══════════════════════════════════════════════════════════════════════════ */
   const ChatScreen = {
     _historial: [],
     _enviando: false,
+    _widgets: [],          // contenedores de widgets montados, para desmontar
 
     onEnter() {
       inyectarCSS();
       this._render();
     },
 
-    onLeave() {},
+    onLeave() {
+      // Cada widget montado tiene un ResizeObserver activo: si no se desmonta,
+      // sigue vivo en una pantalla que ya no se ve.
+      this._desmontarWidgets();
+    },
+
+    _desmontarWidgets() {
+      if (!NS.WidgetMount) return;
+      this._widgets.forEach(el => { try { NS.WidgetMount.unmount(el); } catch (e) {} });
+      this._widgets = [];
+    },
 
     _render() {
       const root = document.getElementById('screen-chat');
       if (!root) return;
+      this._desmontarWidgets();
 
       root.innerHTML = `
-        <div class="chat-shell" style="padding:0 16px;">
+        <div class="chat-shell" style="max-width:860px;margin:0 auto;padding:0 16px;">
           <div style="padding:14px 0 12px;border-bottom:0.5px solid ${C.border};">
             <div style="font-size:15px;font-weight:600;color:${C.text};">Kepler</div>
             <div style="font-size:11px;color:${C.muted};margin-top:2px;">
@@ -394,8 +382,7 @@
       cont.innerHTML = SUGERENCIAS.map((s) =>
         `<button class="chat-sug" data-q="${s.replace(/"/g, '&quot;')}"
            style="background:transparent;border:0.5px solid ${C.border};border-radius:14px;
-                  padding:5px 11px;color:${C.muted};font-size:11px;cursor:pointer;
-                  transition:border-color .15s,color .15s;">${s}</button>`
+                  padding:5px 11px;color:${C.muted};font-size:11px;cursor:pointer;">${s}</button>`
       ).join('');
       cont.querySelectorAll('.chat-sug').forEach((b) => {
         b.onclick = () => {
@@ -415,19 +402,14 @@
     _pintarMensaje(role, texto, tools) {
       const cont = document.getElementById('chat-msgs');
       if (!cont) return null;
-
       const esUser = role === 'user';
       const div = document.createElement('div');
-      div.style.cssText =
-        `display:flex;flex-direction:column;align-items:${esUser ? 'flex-end' : 'flex-start'};`;
+      div.style.cssText = `display:flex;flex-direction:column;align-items:${esUser ? 'flex-end' : 'flex-start'};`;
 
       let toolsHtml = '';
       if (tools && tools.length) {
-        toolsHtml = `<div style="font-size:10px;color:${C.green};margin-bottom:6px;
-                                 display:flex;gap:6px;flex-wrap:wrap;
-                                 font-family:var(--f2, monospace);">
-          ${tools.map((t) => `<span style="border:0.5px solid ${C.border};border-radius:10px;
-                                           padding:2px 7px;">${MD.esc(t.tool)}</span>`).join('')}
+        toolsHtml = `<div style="font-size:10px;color:${C.green};margin-bottom:5px;display:flex;gap:6px;flex-wrap:wrap;">
+          ${tools.map((t) => `<span style="border:0.5px solid ${C.border};border-radius:10px;padding:2px 7px;">⚙ ${t.tool}</span>`).join('')}
         </div>`;
       }
 
@@ -456,6 +438,83 @@
       return div;
     },
 
+    /**
+     * Monta widgets para las capacidades que Kepler ejecutó.
+     *
+     * El backend NO decide qué widget usar — no conoce el catálogo del
+     * frontend. Solo informa qué capacidad corrió, con qué argumentos y qué
+     * devolvió. Acá se busca si hay un widget que declare esa capacidad y el
+     * contexto 'chat'; si no lo hay, queda solo el texto.
+     *
+     * Los datos son los que el modelo YA analizó: si el widget los pidiera de
+     * nuevo podría recibir otros (los tickers se refrescan cada 15 min) y el
+     * texto diría una cosa mientras la tabla muestra otra.
+     */
+    async _montarWidgets(tools) {
+      if (!tools || !tools.length || !NS.Widgets || !NS.WidgetMount) return;
+      const cont = document.getElementById('chat-msgs');
+      if (!cont) return;
+
+      // Las declaraciones de widgets viven en el backend y se cargan async.
+      // Si se entra directo al chat sin pasar por otra pantalla que ya las
+      // haya pedido, el catálogo está vacío y no habría candidatos: parecería
+      // que el widget no existe cuando en realidad todavía no llegó.
+      if (!NS.Widgets.listo) await NS.Widgets.cargar();
+
+      // Kepler puede llamar varias veces a la misma capacidad refinando la
+      // búsqueda (primero sin filtro de spread, después con). Las llamadas
+      // intermedias son pasos de su razonamiento, no resultados: se monta solo
+      // la última de cada capacidad.
+      const ultimas = new Map();
+      for (const t of tools) if (t.resultado) ultimas.set(t.tool, t);
+
+      let ultimoBloque = null;
+      for (const t of ultimas.values()) {
+        const def = NS.Widgets.porCapacidad(t.tool)
+                              .find(w => w.contextos.includes('chat'));
+        if (!def) continue;      // sin widget para esta capacidad: solo texto
+
+        const bloque = document.createElement('div');
+        bloque.style.cssText = 'width:100%;margin-top:2px;';
+        bloque.innerHTML = `
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;
+                      font-family:var(--f2,monospace);font-size:10px;
+                      text-transform:uppercase;letter-spacing:.1em;color:${C.muted};">
+            ${def.icono ? `<i class="ti ${def.icono}" style="font-size:12px;"></i>` : ''}
+            <span>${def.label}</span>
+          </div>
+          <div data-widget-host
+               style="background:${C.surface};border:0.5px solid ${C.border};
+                      border-radius:10px;overflow:hidden;"></div>`;
+        cont.appendChild(bloque);
+
+        const host = bloque.querySelector('[data-widget-host]');
+        // Se ESPERA el montaje: si no, el scroll de abajo corre antes de que
+        // la tabla ocupe su alto y el widget queda fuera de vista — parecía
+        // que no se montaba, y en realidad estaba abajo del scroll.
+        await NS.WidgetMount.mount(host, def.id, {
+          datos:      t.resultado,
+          args:       t.input || {},
+          contexto:   'chat',
+          epistemico: t.epistemico,
+        });
+        this._widgets.push(host);
+        ultimoBloque = bloque;
+      }
+
+      // `#chat-msgs` no tiene scroll propio: crece y scrollea la PÁGINA. Por
+      // eso mover su scrollTop no hacía nada y la tabla quedaba fuera de vista.
+      if (ultimoBloque) {
+        ultimoBloque.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    },
+
+    _escapar(s) {
+      const d = document.createElement('div');
+      d.textContent = s == null ? '' : String(s);
+      return d.innerHTML;
+    },
+
     async _enviar() {
       if (this._enviando) return;
       const input = document.getElementById('chat-input');
@@ -479,6 +538,7 @@
 
         if (pensando) pensando.remove();
         this._pintarMensaje('assistant', data.respuesta || '(sin respuesta)', data.tools_usadas);
+        await this._montarWidgets(data.tools_usadas);
         this._historial = data.historial || this._historial;
       } catch (e) {
         if (pensando) pensando.remove();
