@@ -50,6 +50,7 @@ class Coin(Composable):
             "info_proyecto":    self.info_proyecto,
             "noticias":         self.noticias,
             "pares":            self.pares,
+            "resolver_par":     self.resolver_par,
             "regimen_relativo": self.regimen_relativo,
             "alertas":          self.alertas,
         }
@@ -304,6 +305,107 @@ class Coin(Composable):
             return []
         from backend.strat.pair_discovery import discover_pairs
         return await discover_pairs(row["symbol"])
+
+    @capacidad(
+        nombre="resolver_par",
+        descripcion=(
+            "Dado el nombre de una coin, encontrar en qué par concreto operarla "
+            "cuando el usuario no dijo exchange ni moneda de cotización. "
+            "Devuelve primero los pares que el usuario YA sigue en su watchlist "
+            "(el desempate natural: si sigue ONT/BTC en MEXC, ese es el que "
+            "quiere), y si no sigue ninguno, los pares tradeables ordenados por "
+            "volumen. Usar ANTES de pedir velas, libro o precio de un par cuando "
+            "falta saber exchange+quote: con lo que devuelve, esos datos ya se "
+            "pueden pedir. Si hay varios candidatos y ninguno seguido, se los "
+            "muestra al usuario para que elija."
+        ),
+        entidad="coin",
+        categoria="coin",
+        costo="barato",
+        devuelve=(
+            "dos listas: 'en_watchlist' (pares de esta coin que el usuario "
+            "sigue, con exchange, quote, pair_symbol, operable) y 'candidatos' "
+            "(pares tradeables del catálogo ordenados por volumen 24h, con "
+            "exchange, quote, pair_symbol, volumen). Si 'en_watchlist' trae uno "
+            "solo, es la elección directa"
+        ),
+        mide=(
+            "los pares de esta coin en la tabla watchlist (lo que el usuario "
+            "cargó) y en el catálogo de pares tradeables (tabla pairs, "
+            "sincronizada de MEXC y CoinEx), con su volumen 24h"
+        ),
+        infiere=(
+            "que un par de la watchlist es la elección preferida del usuario "
+            "para esa coin: es una preferencia razonable, no una certeza — el "
+            "usuario podría querer otro par distinto al que sigue"
+        ),
+        no_sabe=(
+            "cuál par quiere el usuario si no sigue ninguno y hay varios "
+            "candidatos: en ese caso no elige, los ofrece. Tampoco sabe si un "
+            "candidato tiene liquidez real más allá del volumen listado, ni si "
+            "sigue operable en este momento"
+        ),
+        fuente=(
+            "tabla `watchlist` (alta manual del usuario) y tabla `pairs` "
+            "(catálogo tradeable, sync desde MEXC/CoinEx)"
+        ),
+        metodo=(
+            "consulta a watchlist por coin_id; y a pairs por coin_id con "
+            "tradeable, ordenado por volumen 24h descendente"
+        ),
+        parametros=[
+            Param(
+                nombre="coin_id",
+                tipo=str,
+                descripcion=(
+                    "id de CoinGecko de la coin, en minúsculas y con guiones. "
+                    "NO el símbolo (usar 'ontology', no 'ONT')"
+                ),
+                requerido=True,
+                ejemplos=("bitcoin", "ethereum", "ontology"),
+            ),
+        ],
+    )
+    async def resolver_par(self) -> dict:
+        """
+        Encuentra el par operable de la coin. Primero lo que el usuario sigue
+        (watchlist), luego los tradeables del catálogo por volumen.
+
+        No abre datos de mercado: solo lee las dos tablas. Es el paso previo a
+        cualquier capacidad de par cuando falta exchange+quote — el que orquesta
+        (Kepler) usa 'en_watchlist' si trae uno, o muestra 'candidatos'.
+        """
+        async with self._pool.acquire() as conn:
+            seguidos = await conn.fetch(
+                """SELECT exchange, quote, pair_symbol, operable, base
+                   FROM watchlist
+                   WHERE coin_id=$1
+                   ORDER BY position ASC NULLS LAST, id ASC""",
+                self.id,
+            )
+            candidatos = await conn.fetch(
+                """SELECT exchange, quote, pair_symbol, base, volume_24h
+                   FROM pairs
+                   WHERE coin_id=$1 AND tradeable
+                   ORDER BY volume_24h DESC NULLS LAST
+                   LIMIT 10""",
+                self.id,
+            )
+
+        return {
+            "en_watchlist": [
+                {"exchange": r["exchange"], "quote": r["quote"],
+                 "pair_symbol": r["pair_symbol"], "operable": r["operable"],
+                 "base": r["base"]}
+                for r in seguidos
+            ],
+            "candidatos": [
+                {"exchange": r["exchange"], "quote": r["quote"],
+                 "pair_symbol": r["pair_symbol"], "base": r["base"],
+                 "volumen": float(r["volume_24h"]) if r["volume_24h"] else None}
+                for r in candidatos
+            ],
+        }
 
     @capacidad(
         nombre="analizar_coin",

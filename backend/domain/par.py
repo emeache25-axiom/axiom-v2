@@ -26,7 +26,29 @@ Estado en este esqueleto (paso 1):
 from __future__ import annotations
 
 from backend.domain.base import Composable
+from backend.domain.registry import capacidad, Param
 from backend.exchanges import get_adapter
+
+
+# Los tres parámetros que el registro usa para CONSTRUIR el Par antes de correr
+# la capacidad: domain.coin(coin_id).par(exchange, quote). Toda capacidad de
+# entidad 'par' los declara; se definen una vez acá para no repetirlos.
+_P_COIN = Param(
+    nombre="coin_id", tipo=str, requerido=True,
+    descripcion=("id de CoinGecko de la coin, en minúsculas y con guiones. "
+                 "NO el símbolo (usar 'ontology', no 'ONT')"),
+    ejemplos=("bitcoin", "ethereum", "ontology"),
+)
+_P_EXCHANGE = Param(
+    nombre="exchange", tipo=str, requerido=True, opciones=("mexc", "coinex"),
+    descripcion="exchange donde vive el par. Solo mexc y coinex son operables.",
+    ejemplos=("mexc", "coinex"),
+)
+_P_QUOTE = Param(
+    nombre="quote", tipo=str, requerido=True,
+    descripcion="moneda de cotización del par (contra qué se opera).",
+    ejemplos=("USDT", "BTC"),
+)
 
 
 class Par(Composable):
@@ -78,6 +100,35 @@ class Par(Composable):
 
     # ══ PEDIDOS ═══════════════════════════════════════════════════════════════
 
+    @capacidad(
+        nombre="precio_par",
+        descripcion=(
+            "El último precio de un par concreto en un exchange concreto. Usar "
+            "cuando importa el precio EN un exchange puntual (ej. ONT/BTC en "
+            "MEXC), no el precio agregado de la coin. Para el precio general de "
+            "una coin, usar analizar_coin."
+        ),
+        entidad="par",
+        categoria="par",
+        costo="barato",
+        devuelve=(
+            "price, bid, ask, change_24h, high_24h, low_24h, volume_24h y "
+            "timestamp — o price null si el par no está siendo seguido en vivo"
+        ),
+        mide=(
+            "el último precio del par que hay en memoria del servicio de precios "
+            "(price_stream), que solo tiene los pares actualmente suscritos"
+        ),
+        infiere="nada",
+        no_sabe=(
+            "el precio si el par no está siendo seguido en vivo: en ese caso "
+            "devuelve price null en vez de ir a buscarlo al exchange. Tampoco "
+            "sabe hace cuánto es ese último precio si el stream se atrasó"
+        ),
+        fuente="price_stream (últimos precios en memoria de los pares suscritos)",
+        metodo="lectura del último tick cacheado para exchange+pair_symbol",
+        parametros=[_P_COIN, _P_EXCHANGE, _P_QUOTE],
+    )
     async def precio_puntual(self) -> dict:
         """Último precio del par. Fuente: price_stream en memoria (si está seguido)."""
         from backend.services.price_stream import get_price as stream_price
@@ -107,7 +158,49 @@ class Par(Composable):
         "1w": 604_800_000, "1M": 2_592_000_000,
     }
 
-    async def velas_hist(self, timeframe: str = "1d", limit: int = 500,
+    @capacidad(
+        nombre="velas_par",
+        descripcion=(
+            "Velas OHLCV históricas de un par (open, high, low, close, volumen) "
+            "en una temporalidad. Usar para ver la evolución reciente del precio "
+            "de un par concreto en su exchange."
+        ),
+        entidad="par",
+        categoria="par",
+        costo="medio",
+        devuelve=(
+            "lista de velas [{time (segundos UTC), open, high, low, close, "
+            "volume}], de la más antigua a la más reciente"
+        ),
+        mide=(
+            "las velas OHLCV tal como las devuelve el exchange para ese par y "
+            "esa temporalidad, en la ventana pedida"
+        ),
+        infiere="nada: son datos crudos del exchange, sin lectura ni indicadores",
+        no_sabe=(
+            "nada sobre lo que las velas significan: no dice si el precio va a "
+            "subir o bajar, ni calcula tendencia, soporte o patrón. Tampoco "
+            "garantiza continuidad si el exchange tuvo huecos de datos"
+        ),
+        fuente="adaptador del exchange (MEXC/CoinEx), consultado en vivo",
+        metodo="get_ohlcv del adaptador, normalizado a segundos UTC",
+        parametros=[
+            _P_COIN, _P_EXCHANGE, _P_QUOTE,
+            Param(
+                nombre="timeframe", tipo=str, requerido=False, default="1d",
+                opciones=("5m", "15m", "30m", "1h", "4h", "1d", "1w", "1M"),
+                descripcion="temporalidad de cada vela.",
+                ejemplos=("1h", "1d"),
+            ),
+            Param(
+                nombre="limit", tipo=int, requerido=False, default=30,
+                descripcion=("cuántas velas traer (máximo 200; en conversación "
+                             "pocas velas suelen alcanzar)."),
+                ejemplos=(30, 100),
+            ),
+        ],
+    )
+    async def velas_hist(self, timeframe: str = "1d", limit: int = 30,
                          start_ms: int | None = None,
                          end_ms: int | None = None) -> list:
         """
@@ -116,6 +209,7 @@ class Par(Composable):
         [{time, open, high, low, close, volume}] con time en segundos UTC.
         start_ms/end_ms opcionales para paginar rangos (scroll del gráfico).
         """
+        limit = max(1, min(int(limit or 30), 200))   # tope duro: nunca 500 en chat
         symbol = await self._resolve_symbol()
         if not symbol:
             return []
@@ -135,6 +229,42 @@ class Par(Composable):
         except Exception:
             return []
 
+    @capacidad(
+        nombre="libro_par",
+        descripcion=(
+            "El libro de órdenes (profundidad) de un par en un momento: las "
+            "órdenes de compra (bids) y venta (asks) con su precio y cantidad. "
+            "Usar para ver la liquidez inmediata y el spread de un par."
+        ),
+        entidad="par",
+        categoria="par",
+        costo="medio",
+        devuelve=(
+            "timestamp, bids (compras) y asks (ventas), cada uno como lista de "
+            "[precio, cantidad], ordenados del mejor precio hacia afuera"
+        ),
+        mide=(
+            "las órdenes visibles en el libro del exchange en el instante del "
+            "pedido, hasta la profundidad solicitada"
+        ),
+        infiere="nada: es una foto del libro tal como lo publica el exchange",
+        no_sabe=(
+            "si esas órdenes son reales y se van a ejecutar: el libro puede "
+            "tener órdenes falsas (spoofing) que se retiran antes de tocarse, "
+            "así que la profundidad visible no equivale a liquidez garantizada. "
+            "Es una foto de un instante, no dice cómo evoluciona"
+        ),
+        fuente="adaptador del exchange (MEXC/CoinEx), consultado en vivo",
+        metodo="get_orderbook del adaptador a la profundidad pedida",
+        parametros=[
+            _P_COIN, _P_EXCHANGE, _P_QUOTE,
+            Param(
+                nombre="depth", tipo=int, requerido=False, default=20,
+                descripcion="cuántos niveles de precio traer por lado.",
+                ejemplos=(20, 50),
+            ),
+        ],
+    )
     async def order_book_snapshot(self, depth: int = 20) -> dict:
         """Libro de órdenes puntual. Fuente: adaptador del exchange."""
         symbol = await self._resolve_symbol()
@@ -148,6 +278,27 @@ class Par(Composable):
         except Exception:
             return {"ts": None, "bids": [], "asks": []}
 
+    @capacidad(
+        nombre="estado_grafico",
+        descripcion=(
+            "Qué par y temporalidad tiene cargados ahora mismo la pantalla de "
+            "gráficos (el estado persistido del gráfico). Usar para saber qué "
+            "está mirando el usuario en el gráfico."
+        ),
+        entidad="par",
+        categoria="par",
+        costo="barato",
+        devuelve="coin_id, timeframe, exchange y ex_symbol cargados en el gráfico",
+        mide="la fila de estado del gráfico guardada en la base (chart_state)",
+        infiere="nada",
+        no_sabe=(
+            "nada más que lo guardado: es el último estado que la pantalla "
+            "persistió, no dice si el usuario sigue mirándolo ni qué hizo después"
+        ),
+        fuente="tabla chart_state (PG), fila única del gráfico",
+        metodo="lectura directa de chart_state",
+        parametros=[_P_COIN, _P_EXCHANGE, _P_QUOTE],
+    )
     async def estado_chart(self) -> dict:
         """Estado del gráfico persistido para este par. Fuente: PG chart_state."""
         async with self._pool.acquire() as conn:
