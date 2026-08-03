@@ -297,15 +297,19 @@ registro_widgets.registrar(Widget(
     args_default={},
 
     densidades={
-        # Lo que sobrevive en pantalla chica: qué par es, a cuánto está y
-        # cuánto se movió hoy. El resto es contexto que puede esperar.
-        "compacto": Densidad(hasta=460, campos=("coin", "precio", "cambio_24h")),
+        # Panel angosto (ej. el lateral del gráfico, 240px). Acá el render NO
+        # usa columnas: dibuja APILADO —par arriba, precio debajo, sparkline al
+        # medio, % a la derecha—. En columnas a 240px el par y el precio se
+        # superponían; apilado nada les compite el ancho. Mismo criterio que
+        # regimen_mercado: a poco ancho cambia la DISPOSICIÓN, no qué columnas
+        # caben.
+        "compacto": Densidad(hasta=520, campos=("coin", "sparkline", "cambio_24h")),
         "normal":   Densidad(hasta=820, campos=(
-            "coin", "precio", "cambio_24h", "cambio_7d", "exchange")),
+            "coin", "sparkline", "precio", "cambio_24h", "cambio_7d", "exchange")),
         # En la vista amplia se suman volumen y la columna de acciones — que
         # el render muestra solo si el contexto es 'pantalla'.
         "amplio":   Densidad(hasta=None, campos=(
-            "coin", "precio", "cambio_24h", "cambio_7d", "volumen",
+            "coin", "sparkline", "precio", "cambio_24h", "cambio_7d", "volumen",
             "exchange", "acciones")),
     },
 
