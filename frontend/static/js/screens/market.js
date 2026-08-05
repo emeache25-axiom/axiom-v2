@@ -255,16 +255,18 @@ const MarketScreen = {
   // _coinRow (las filas de ganadoras/perdedoras) se reemplazó por el widget
   // tabla_pares montado en _montarGainersLosers.
 
+  // Delega en Fmt.sparkline (la implementación compartida). Antes market.js
+  // tenía su propia copia del SVG — la última que quedaba duplicada. Se
+  // conserva acá solo la firma (prices, change7d) y el guion cuando no hay
+  // datos, para no tocar el punto de uso en _tableRow. Tamaño 80×32 para
+  // preservar el look de la tabla.
   _sparkline(prices, change7d) {
-    if (!prices || prices.length < 2) return '<span style="color:var(--t3);font-size:10px;">—</span>';
-    const color = change7d >= 0 ? '#56A14F' : '#D93B3B';
-    const min = Math.min(...prices), max = Math.max(...prices);
-    const range = max - min || 1;
-    const w = 80, h = 32;
-    const pts = prices.map((p,i) => `${((i/(prices.length-1))*w).toFixed(1)},${(h-((p-min)/range)*h).toFixed(1)}`).join(' ');
-    return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="display:block;">
-      <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
-    </svg>`;
+    const Fmt = window.AXIOM && window.AXIOM.Fmt;
+    if (!Fmt || !prices || prices.length < 2) {
+      return '<span style="color:var(--t3);font-size:10px;">—</span>';
+    }
+    return Fmt.sparkline(prices, change7d >= 0, { w: 80, h: 32 })
+        || '<span style="color:var(--t3);font-size:10px;">—</span>';
   },
 
   _tableHeader() {
