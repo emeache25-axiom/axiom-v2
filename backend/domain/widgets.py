@@ -283,6 +283,67 @@ registro_widgets.registrar(Widget(
 
 
 registro_widgets.registrar(Widget(
+    id="tabla_coins",
+    label="Top coins",
+    grupo="Mercado",
+    icono="ti-list-numbers",
+    descripcion=(
+        "Las coins que encabezan el mercado por un criterio (capitalización, "
+        "volumen, variación 24h o 7d). Es la vista natural de top_coins."
+    ),
+    capacidad="top_coins",
+    contextos=("pantalla", "panel", "chat", "dashboard"),
+    args_default={},
+
+    densidades={
+        # Chat / panel angosto: lo mínimo para reconocer el ranking — puesto,
+        # coin, el valor del criterio (por el que se ordenó) y cómo viene hoy.
+        "compacto": Densidad(hasta=520, campos=(
+            "pos", "coin", "valor", "cambio_24h")),
+        "normal":   Densidad(hasta=880, campos=(
+            "pos", "coin", "precio", "cambio_24h", "cambio_7d", "valor")),
+        # Tabla rica completa: reemplaza la _tableRow de market.js.
+        "amplio":   Densidad(hasta=None, campos=(
+            "pos", "coin", "precio", "cambio_24h", "cambio_7d", "spark",
+            "mcap", "volumen")),
+    },
+
+    # La capacidad no acepta ordenamiento por columna del widget: el orden lo
+    # define el `criterio` con que se la llama.
+    ordenable_por=(),
+    metricas=(),
+))
+
+
+registro_widgets.registrar(Widget(
+    id="selector_par",
+    label="Elegir par",
+    grupo="Par",
+    icono="ti-list-search",
+    descripcion=(
+        "Cuando hay que elegir en qué par mirar una coin (no está en la "
+        "watchlist y hay varios candidatos), muestra las opciones para que el "
+        "usuario elija con un clic. Es la vista natural de resolver_par cuando "
+        "requiere una decisión."
+    ),
+    capacidad="resolver_par",
+    # Solo en el chat: es un paso de decisión conversacional, no una vista de
+    # pantalla ni de panel.
+    contextos=("chat",),
+    args_default={},
+
+    densidades={
+        "compacto": Densidad(hasta=520, campos=("opciones",)),
+        "normal":   Densidad(hasta=900, campos=("opciones",)),
+        "amplio":   Densidad(hasta=None, campos=("opciones",)),
+    },
+
+    ordenable_por=(),
+    metricas=(),
+))
+
+
+registro_widgets.registrar(Widget(
     id="libro_orden",
     label="Libro de órdenes",
     grupo="Par",
@@ -410,10 +471,15 @@ registro_widgets.registrar(Widget(
     ordenable_por=("par", "exchange", "precio", "volumen", "cambio",
                    "volatilidad", "desvio", "repetible", "impulso",
                    "impulso_rep", "spread", "velas", "coin"),
-    metricas=("volatilidad", "desvio", "repetible", "impulso",
+    # `cambio` (variación 24h) es métrica mostrable: cuando se ordena por él —
+    # ganadoras/perdedoras del día— el slot de la densidad compacta debe poder
+    # mostrarlo. Sin esto, el slot caía en volatilidad (el rango) y las
+    # "perdedoras" mostraban un número positivo que no era su variación.
+    metricas=("cambio", "volatilidad", "desvio", "repetible", "impulso",
               "impulso_rep", "spread"),
-    # Orden de preferencia para llenar los slots libres: primero el rango
-    # (la métrica principal), después el spread (define si el trade es viable).
+    # Orden de preferencia para llenar los slots libres cuando no se ordena por
+    # una métrica: primero el rango (la métrica principal del screener), después
+    # el spread (define si el trade es viable).
     metricas_pref=("volatilidad", "spread", "impulso", "repetible",
                    "impulso_rep", "desvio"),
 ))
