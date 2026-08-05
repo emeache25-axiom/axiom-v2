@@ -253,7 +253,7 @@ const MarketScreen = {
 
   // ── General ──────────────────────────────────────────────────────────────
   // _coinRow (las filas de ganadoras/perdedoras) se reemplazó por el widget
-  // tabla_coins montado en _montarGainersLosers.
+  // tabla_pares montado en _montarGainersLosers.
 
   _sparkline(prices, change7d) {
     if (!prices || prices.length < 2) return '<span style="color:var(--t3);font-size:10px;">—</span>';
@@ -342,24 +342,31 @@ const MarketScreen = {
     this.coinsLoading = false;
   },
 
-  // Monta ganadoras y perdedoras como widget tabla_coins. Antes eran _coinRow
-  // (render propio); ahora es el mismo widget del chat, con criterio change_24h
-  // y dirección opuesta. Reemplaza a _coinRow.
+  // Ganadoras y perdedoras sobre el universo que AXIOM realmente opera: PARES
+  // tradeables (buscar_pares), no coins de CoinGecko. Antes usaba top_coins y
+  // mostraba coins que ni siquiera son operables, con datos rotos del agregador
+  // (market_cap inflado, +611% imposibles). Ahora es la tabla `pairs`,
+  // sincronizada de MEXC/CoinEx, ordenada por variación. El widget tabla_pares
+  // en densidad compacta muestra par + precio + la métrica ordenada (cambio).
   async _montarGainersLosers() {
     if (!window.AXIOM?.WidgetMount) return;
     const pedir = async (host, dir) => {
       if (!host) return;
       try {
-        const r = await fetch('/api/capacidades/top_coins', {
+        const r = await fetch('/api/capacidades/buscar_pares', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ criterio: 'change_24h', n: 5, dir, min_mcap: this.minMcap }),
+          // min_volumen filtra pares muertos (el ruido acá es baja liquidez, no
+          // market cap). Orden por 'cambio'; dir define ganadoras vs perdedoras.
+          body: JSON.stringify({
+            orden: 'cambio', dir, limit: 5, min_volumen: 50000,
+          }),
         });
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const res = await r.json();
-        await AXIOM.WidgetMount.mount(host, 'tabla_coins', {
+        await AXIOM.WidgetMount.mount(host, 'tabla_pares', {
           datos: res.resultado,
-          args: { criterio: 'change_24h' },
+          args: { orden: 'cambio' },
           contexto: 'pantalla',
           epistemico: res.epistemico,
         });
@@ -391,11 +398,11 @@ const MarketScreen = {
     </div>
     <div class="market-gl-grid" style="margin-bottom:14px;">
       <div class="card" style="border-top:2px solid #56A14F;border-left:1px solid #56A14F40;border-right:1px solid #56A14F40;border-bottom:1px solid #56A14F40;">
-        ${this._sectionHeader('ti-trending-up','Top ganadoras 24h','#56A14F')}
+        ${this._sectionHeader('ti-trending-up','Pares que más suben 24h','#56A14F')}
         <div id="market-gainers"></div>
       </div>
       <div class="card" style="border-top:2px solid #D93B3B;border-left:1px solid #D93B3B40;border-right:1px solid #D93B3B40;border-bottom:1px solid #D93B3B40;">
-        ${this._sectionHeader('ti-trending-down','Top perdedoras 24h','#D93B3B')}
+        ${this._sectionHeader('ti-trending-down','Pares que más bajan 24h','#D93B3B')}
         <div id="market-losers"></div>
       </div>
     </div>
