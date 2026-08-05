@@ -188,7 +188,10 @@ const MarketScreen = {
     if (!el) return;
     if (this._isCacheValid(view)) {
       el.innerHTML = this.cache[view];
-      if (view === 'general') setTimeout(() => this._loadCoinsPage(this.coinsPage || 1), 50);
+      if (view === 'general') {
+        this._montarGainersLosers();
+        setTimeout(() => this._loadCoinsPage(this.coinsPage || 1), 50);
+      }
       return;
     }
     el.innerHTML = `<div class="placeholder"><i class="ti ti-refresh"></i><p>Cargando...</p></div>`;
@@ -239,27 +242,18 @@ const MarketScreen = {
       this.cacheTime[view] = Date.now();
       this.loaded[view]    = true;
       el.innerHTML         = html;
-      if (view === 'general') setTimeout(() => this._loadCoinsPage(1), 50);
+      if (view === 'general') {
+        this._montarGainersLosers();
+        setTimeout(() => this._loadCoinsPage(1), 50);
+      }
     } catch(e) {
       el.innerHTML = `<div class="placeholder"><i class="ti ti-alert-circle"></i><p>Error al cargar datos</p></div>`;
     }
   },
 
   // ── General ──────────────────────────────────────────────────────────────
-  _coinRow(c) {
-    return `
-    <div style="display:flex;align-items:center;justify-content:space-between;
-                padding:8px 0;border-bottom:0.5px solid var(--w1);">
-      <div style="display:flex;align-items:center;gap:8px;min-width:0;">
-        ${this._avatar(c.symbol, c.image)}
-        <div style="min-width:0;">
-          <div style="font-size:12px;font-weight:500;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${c.name}</div>
-          <div style="font-family:var(--f2);font-size:10px;color:var(--t3);">${this._price(c.price)}</div>
-        </div>
-      </div>
-      ${this._change(c.change_24h)}
-    </div>`;
-  },
+  // _coinRow (las filas de ganadoras/perdedoras) se reemplazó por el widget
+  // tabla_coins montado en _montarGainersLosers.
 
   _sparkline(prices, change7d) {
     if (!prices || prices.length < 2) return '<span style="color:var(--t3);font-size:10px;">—</span>';
@@ -348,6 +342,35 @@ const MarketScreen = {
     this.coinsLoading = false;
   },
 
+  // Monta ganadoras y perdedoras como widget tabla_coins. Antes eran _coinRow
+  // (render propio); ahora es el mismo widget del chat, con criterio change_24h
+  // y dirección opuesta. Reemplaza a _coinRow.
+  async _montarGainersLosers() {
+    if (!window.AXIOM?.WidgetMount) return;
+    const pedir = async (host, dir) => {
+      if (!host) return;
+      try {
+        const r = await fetch('/api/capacidades/top_coins', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ criterio: 'change_24h', n: 5, dir, min_mcap: this.minMcap }),
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const res = await r.json();
+        await AXIOM.WidgetMount.mount(host, 'tabla_coins', {
+          datos: res.resultado,
+          args: { criterio: 'change_24h' },
+          contexto: 'pantalla',
+          epistemico: res.epistemico,
+        });
+      } catch (e) {
+        host.innerHTML = `<div style="padding:14px;color:var(--t3);font-size:12px;">No se pudo cargar.</div>`;
+      }
+    };
+    await pedir(document.getElementById('market-gainers'), 'desc');
+    await pedir(document.getElementById('market-losers'), 'asc');
+  },
+
   _renderGeneral(data) {
     const mcapOptions = [
       {value:0,           label:'Sin filtro'},
@@ -369,11 +392,11 @@ const MarketScreen = {
     <div class="market-gl-grid" style="margin-bottom:14px;">
       <div class="card" style="border-top:2px solid #56A14F;border-left:1px solid #56A14F40;border-right:1px solid #56A14F40;border-bottom:1px solid #56A14F40;">
         ${this._sectionHeader('ti-trending-up','Top ganadoras 24h','#56A14F')}
-        ${data.gainers.map(c => this._coinRow(c)).join('')}
+        <div id="market-gainers"></div>
       </div>
       <div class="card" style="border-top:2px solid #D93B3B;border-left:1px solid #D93B3B40;border-right:1px solid #D93B3B40;border-bottom:1px solid #D93B3B40;">
         ${this._sectionHeader('ti-trending-down','Top perdedoras 24h','#D93B3B')}
-        ${data.losers.map(c => this._coinRow(c)).join('')}
+        <div id="market-losers"></div>
       </div>
     </div>
     <div class="card" style="border-top:2px solid #B47514;border-left:1px solid #B4751440;border-right:1px solid #B4751440;border-bottom:1px solid #B4751440;">

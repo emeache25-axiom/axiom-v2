@@ -473,10 +473,17 @@ class Mercado(Composable):
                   "descartar microcaps con datos rotos (variaciones imposibles). "
                   "Poner 0 para ver el catálogo crudo, basura incluida.",
                   default=10_000_000.0),
+            Param("dir", str,
+                  "Sentido del orden. 'desc' (por defecto) para las que más "
+                  "tienen del criterio; 'asc' para las que menos — sirve para "
+                  "'las que más bajaron' (criterio change_24h, dir asc).",
+                  opciones=("desc", "asc"),
+                  default="desc"),
         ],
     )
     async def ranking(self, criterio: str = "market_cap", n: int = 10,
-                      min_mcap: float = 10_000_000.0) -> dict:
+                      min_mcap: float = 10_000_000.0,
+                      dir: str = "desc") -> dict:
         """Top N coins por criterio. Fuente: coins (PG).
 
         Devuelve, además del `valor` del criterio, los campos que la vista rica
@@ -493,6 +500,10 @@ class Mercado(Composable):
         col = columnas.get(criterio, "market_cap")
         n = max(1, min(100, n))
         min_mcap = max(0.0, float(min_mcap or 0))
+        # `dir` no puede ir como parámetro SQL (es palabra clave), así que se
+        # valida contra una whitelist estricta antes de interpolar — nunca se
+        # mete texto del usuario crudo en la query.
+        orden = "ASC" if str(dir).lower() == "asc" else "DESC"
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(f"""
                 SELECT id, symbol, name, rank, price, {col} AS valor,
@@ -501,7 +512,7 @@ class Mercado(Composable):
                 FROM coins
                 WHERE {col} IS NOT NULL AND rank IS NOT NULL
                   AND (market_cap >= $2 OR $2 = 0)
-                ORDER BY {col} DESC NULLS LAST
+                ORDER BY {col} {orden} NULLS LAST
                 LIMIT $1
             """, n, min_mcap)
 
