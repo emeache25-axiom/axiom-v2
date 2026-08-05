@@ -17,6 +17,8 @@ Estado en este esqueleto (paso 1):
 """
 from __future__ import annotations
 
+import json
+
 from backend.domain.base import Composable
 from backend.domain.registry import capacidad, Param
 
@@ -449,20 +451,39 @@ class Mercado(Composable):
             "por qué una coin está donde está; no hay lectura de causas. "
             "Los valores son del último sync (hasta 6 horas de antigüedad), "
             "así que en un mercado moviéndose rápido pueden estar desfasados. "
-            "Encabezar un ranking no dice nada sobre el comportamiento futuro"
+            "Encabezar un ranking no dice nada sobre el comportamiento futuro. "
+            "Por defecto excluye coins de menos de 10M de capitalización, porque "
+            "ahí se concentran los datos rotos de la fuente (variaciones "
+            "imposibles en tokens sin liquidez); bajar min_mcap a 0 las incluye, "
+            "con esa basura incluida"
         ),
         fuente="tabla `coins` (sync desde CoinGecko cada 6 h)",
-        metodo="ORDER BY sobre la columna del criterio, descendente",
+        metodo=(
+            "ORDER BY sobre la columna del criterio, descendente, filtrando por "
+            "capitalización mínima (min_mcap) para descartar el ruido de microcaps"
+        ),
         parametros=[
             Param("criterio", str,
                   "Qué se ordena. Por defecto capitalización.",
                   opciones=("market_cap", "volume_24h", "change_24h", "change_7d"),
                   default="market_cap"),
             Param("n", int, "Cuántas devolver (1 a 100).", default=10),
+            Param("min_mcap", float,
+                  "Capitalización mínima en USD. Por defecto 10.000.000 para "
+                  "descartar microcaps con datos rotos (variaciones imposibles). "
+                  "Poner 0 para ver el catálogo crudo, basura incluida.",
+                  default=10_000_000.0),
         ],
     )
-    async def ranking(self, criterio: str = "market_cap", n: int = 10) -> dict:
-        """Top N coins por criterio. Fuente: coins (PG)."""
+    async def ranking(self, criterio: str = "market_cap", n: int = 10,
+                      min_mcap: float = 10_000_000.0) -> dict:
+        """Top N coins por criterio. Fuente: coins (PG).
+
+        Devuelve, además del `valor` del criterio, los campos que la vista rica
+        necesita (precio, variaciones, capitalización, volumen, sparkline). Así
+        el widget tabla_coins se pinta completo sin una segunda consulta. Todos
+        salen de la misma fila de `coins`, en el mismo SELECT.
+        """
         columnas = {
             "market_cap": "market_cap",
             "change_24h": "change_24h",
@@ -471,15 +492,30 @@ class Mercado(Composable):
         }
         col = columnas.get(criterio, "market_cap")
         n = max(1, min(100, n))
+        min_mcap = max(0.0, float(min_mcap or 0))
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(f"""
                 SELECT id, symbol, name, rank, price, {col} AS valor,
-                       change_24h, image
+                       change_24h, change_7d, market_cap, volume_24h,
+                       sparkline, image
                 FROM coins
                 WHERE {col} IS NOT NULL AND rank IS NOT NULL
+                  AND (market_cap >= $2 OR $2 = 0)
                 ORDER BY {col} DESC NULLS LAST
                 LIMIT $1
-            """, n)
+            """, n, min_mcap)
+
+        def _spark(v):
+            # sparkline puede venir como texto JSON o como lista ya parseada.
+            if not v:
+                return []
+            if isinstance(v, str):
+                try:
+                    return json.loads(v)
+                except Exception:
+                    return []
+            return v if isinstance(v, list) else []
+
         coins = []
         for i, r in enumerate(rows, start=1):
             coins.append({
@@ -489,7 +525,12 @@ class Mercado(Composable):
                 "name":       r["name"],
                 "rank":       r["rank"],
                 "valor":      float(r["valor"]) if r["valor"] is not None else None,
+                "price":      float(r["price"]) if r["price"] is not None else None,
                 "change_24h": float(r["change_24h"]) if r["change_24h"] is not None else None,
+                "change_7d":  float(r["change_7d"]) if r["change_7d"] is not None else None,
+                "market_cap": float(r["market_cap"]) if r["market_cap"] is not None else None,
+                "volume_24h": float(r["volume_24h"]) if r["volume_24h"] is not None else None,
+                "sparkline":  _spark(r["sparkline"]),
                 "image":      r["image"],
             })
         return {"criterio": criterio, "coins": coins}
