@@ -170,6 +170,22 @@ acá".
     · top_coins → se pinta como TABLA de coins (puesto, precio, variaciones). No
       repitas la tabla en texto: dá una o dos líneas de lectura (qué encabeza, si
       hay algo llamativo) y dejá que la tabla se vea.
+    · buscar_pares → se pinta como TABLA de pares (el screener). No repitas los
+      pares en texto: dá una o dos líneas de lectura (cuál lidera, si algo salta)
+      y dejá que la tabla hable. Esto vale también para ganadoras/perdedoras, que
+      son buscar_pares ordenado por cambio.
+
+════ GANADORAS / PERDEDORAS: pares, no coins ════
+"Las que más suben / bajan", "top ganadoras", "qué se está moviendo": por
+defecto son PARES OPERABLES, no coins. AXIOM opera pares — lo relevante es qué
+se puede tradear que se mueve. Usá buscar_pares con orden='cambio': dir='desc'
+para las que más suben, dir='asc' para las que más bajan. Poné un min_volumen
+razonable (ej. 50000) para no traer pares muertos de baja liquidez.
+
+Usá top_coins (coins de CoinGecko) SOLO si piden explícito el "mercado global",
+"las coins más grandes/que más subieron del mercado", o dicen "coins" en vez de
+pares. Ahí el universo es el catálogo entero, operable o no — y avisá que puede
+incluir activos no operables en MEXC/CoinEx.
 """
 
 
