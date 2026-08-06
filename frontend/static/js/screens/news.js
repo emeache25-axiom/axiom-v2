@@ -12,7 +12,7 @@ const NewsScreen = {
     el.innerHTML = `<div class="placeholder"><i class="ti ti-refresh"></i><p>Cargando noticias...</p></div>`;
     try {
       const [newsData, sourcesData] = await Promise.all([
-        API.getNews(60),
+        API.getNews(300),
         API.getNewsSources(),
       ]);
       this.sources = sourcesData.sources;
@@ -29,7 +29,7 @@ const NewsScreen = {
     if (!grid) return;
     grid.innerHTML = `<div style="color:var(--t3);font-size:13px;padding:20px 0;">Cargando...</div>`;
     try {
-      const data = await API.getNews(60, source === 'Todas' ? null : source);
+      const data = await API.getNews(300, source === 'Todas' ? null : source);
       grid.innerHTML = this._renderGrid(data.articles);
       document.querySelectorAll('.news-src-btn').forEach(b =>
         b.classList.toggle('active', b.dataset.source === source));

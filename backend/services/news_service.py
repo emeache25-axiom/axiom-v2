@@ -19,12 +19,13 @@ RSS_FEEDS = [
     {"name": "AMBCrypto",          "url": "https://es.ambcrypto.com/feed/",                 "lang": "es", "category": "General"},
     {"name": "CoinTribune",        "url": "https://www.cointribune.com/es/feed/",           "lang": "es", "category": "General"},
     {"name": "CryptoRo",           "url": "https://crypto.ro/es/feed/",                     "lang": "es", "category": "General"},
+    {"name": "Cointelegraph",      "url": "https://cointelegraph.es/rss",                   "lang": "es", "category": "General"},
 ]
 
 _news_cache = []
 _last_fetch = None
 _CACHE_MINUTES = 30
-_ITEMS_PER_FEED = 15  # Más ítems por feed para llegar a 150
+_ITEMS_PER_FEED = 30  # por feed; con ~11 feeds da caudal amplio tras dedup
 
 
 async def fetch_feed(session: httpx.AsyncClient, feed: dict) -> list[dict]:
@@ -163,7 +164,7 @@ def _parse_date(date_str: str) -> Optional[datetime]:
     return None
 
 
-async def get_news(limit: int = 150, lang: Optional[str] = None, source: Optional[str] = None) -> dict:
+async def get_news(limit: int = 300, lang: Optional[str] = None, source: Optional[str] = None) -> dict:
     global _news_cache, _last_fetch
 
     now = datetime.now(timezone.utc)
