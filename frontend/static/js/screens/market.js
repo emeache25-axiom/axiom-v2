@@ -189,7 +189,6 @@ const MarketScreen = {
     if (this._isCacheValid(view)) {
       el.innerHTML = this.cache[view];
       if (view === 'general') {
-        this._montarGainersLosers();
         setTimeout(() => this._loadCoinsPage(this.coinsPage || 1), 50);
       }
       return;
@@ -243,7 +242,6 @@ const MarketScreen = {
       this.loaded[view]    = true;
       el.innerHTML         = html;
       if (view === 'general') {
-        this._montarGainersLosers();
         setTimeout(() => this._loadCoinsPage(1), 50);
       }
     } catch(e) {
@@ -252,8 +250,11 @@ const MarketScreen = {
   },
 
   // ── General ──────────────────────────────────────────────────────────────
-  // _coinRow (las filas de ganadoras/perdedoras) se reemplazó por el widget
-  // tabla_pares montado en _montarGainersLosers.
+  // Esta vista es CONTEXTO de mercado global: coins por capitalización (tabla
+  // paginada). Las ganadoras/perdedoras NO viven acá — eso son PARES operables,
+  // y su hábitat es la pantalla de Pares (ordenar por 24h) y el chat (Kepler
+  // con buscar_pares). Mezclar coins y pares en una misma vista confundía dos
+  // universos distintos; se separaron por pantalla.
 
   // Delega en Fmt.sparkline (la implementación compartida). Antes market.js
   // tenía su propia copia del SVG — la última que quedaba duplicada. Se
@@ -344,42 +345,6 @@ const MarketScreen = {
     this.coinsLoading = false;
   },
 
-  // Ganadoras y perdedoras sobre el universo que AXIOM realmente opera: PARES
-  // tradeables (buscar_pares), no coins de CoinGecko. Antes usaba top_coins y
-  // mostraba coins que ni siquiera son operables, con datos rotos del agregador
-  // (market_cap inflado, +611% imposibles). Ahora es la tabla `pairs`,
-  // sincronizada de MEXC/CoinEx, ordenada por variación. El widget tabla_pares
-  // en densidad compacta muestra par + precio + la métrica ordenada (cambio).
-  async _montarGainersLosers() {
-    if (!window.AXIOM?.WidgetMount) return;
-    const pedir = async (host, dir) => {
-      if (!host) return;
-      try {
-        const r = await fetch('/api/capacidades/buscar_pares', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          // min_volumen filtra pares muertos (el ruido acá es baja liquidez, no
-          // market cap). Orden por 'cambio'; dir define ganadoras vs perdedoras.
-          body: JSON.stringify({
-            orden: 'cambio', dir, limit: 5, min_volumen: 50000,
-          }),
-        });
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const res = await r.json();
-        await AXIOM.WidgetMount.mount(host, 'tabla_pares', {
-          datos: res.resultado,
-          args: { orden: 'cambio' },
-          contexto: 'pantalla',
-          epistemico: res.epistemico,
-        });
-      } catch (e) {
-        host.innerHTML = `<div style="padding:14px;color:var(--t3);font-size:12px;">No se pudo cargar.</div>`;
-      }
-    };
-    await pedir(document.getElementById('market-gainers'), 'desc');
-    await pedir(document.getElementById('market-losers'), 'asc');
-  },
-
   _renderGeneral(data) {
     const mcapOptions = [
       {value:0,           label:'Sin filtro'},
@@ -397,16 +362,6 @@ const MarketScreen = {
                background:var(--c2);color:var(--t1);font-size:12px;font-family:var(--f2);cursor:pointer;">
         ${mcapOptions}
       </select>
-    </div>
-    <div class="market-gl-grid" style="margin-bottom:14px;">
-      <div class="card" style="border-top:2px solid #56A14F;border-left:1px solid #56A14F40;border-right:1px solid #56A14F40;border-bottom:1px solid #56A14F40;">
-        ${this._sectionHeader('ti-trending-up','Pares que más suben 24h','#56A14F')}
-        <div id="market-gainers"></div>
-      </div>
-      <div class="card" style="border-top:2px solid #D93B3B;border-left:1px solid #D93B3B40;border-right:1px solid #D93B3B40;border-bottom:1px solid #D93B3B40;">
-        ${this._sectionHeader('ti-trending-down','Pares que más bajan 24h','#D93B3B')}
-        <div id="market-losers"></div>
-      </div>
     </div>
     <div class="card" style="border-top:2px solid #B47514;border-left:1px solid #B4751440;border-right:1px solid #B4751440;border-bottom:1px solid #B4751440;">
       ${this._sectionHeader('ti-list-numbers','Por capitalización','#B47514')}

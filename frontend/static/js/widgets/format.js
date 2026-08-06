@@ -64,6 +64,40 @@
     },
 
     /**
+     * Mini-sparkline SVG a partir de una serie de números. Estaba en
+     * watchlist-panel.js como `_sparkline`; se generaliza acá para que
+     * cualquier widget lo use igual.
+     *
+     * `sube` decide el color (verde/rojo). Si no se pasa, se infiere del
+     * primer vs. último punto de la serie. Devuelve '' si no hay datos, así
+     * el que lo llama no tiene que chequear.
+     */
+    sparkline(serie, sube, opts = {}) {
+      if (!Array.isArray(serie) || serie.length < 2) return '';
+      const nums = serie.map(Number).filter(isFinite);
+      if (nums.length < 2) return '';
+
+      const w = opts.w || 44;
+      const h = opts.h || 20;
+      const min = Math.min(...nums);
+      const max = Math.max(...nums);
+      const rango = (max - min) || 1;
+      const paso = w / (nums.length - 1);
+
+      const pts = nums.map((v, i) =>
+        `${(i * paso).toFixed(1)},${(h - ((v - min) / rango) * h).toFixed(1)}`
+      ).join(' ');
+
+      const arriba = sube == null ? (nums[nums.length - 1] >= nums[0]) : !!sube;
+      const col = arriba ? '#56A14F' : 'var(--re,#D93B3B)';
+
+      return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"
+        style="flex-shrink:0;display:block;" aria-hidden="true">
+        <polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1"
+          stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+    },
+
+    /**
      * Lectura tolerante: la misma métrica llega con nombres distintos según
      * el origen (la capacidad `buscar_pares` usa `rango_diario_pct`, el
      * endpoint `/api/pairs/` usa `volatilidad`).

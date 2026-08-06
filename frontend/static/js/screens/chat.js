@@ -468,6 +468,16 @@
       const ultimas = new Map();
       for (const t of tools) if (t.resultado) ultimas.set(t.tool, t);
 
+      // El selector de par (resolver_par) solo tiene sentido cuando Kepler se
+      // DETUVO a preguntar. Si en la misma respuesta también pidió datos de un
+      // par (velas/libro/precio), ya eligió: mostrar el selector además sería
+      // ofrecer una decisión que Kepler ya tomó. Se lo quita del montaje.
+      const PIDIO_DATOS_PAR = ['velas_par', 'libro_par', 'precio_par'];
+      if (ultimas.has('resolver_par') &&
+          PIDIO_DATOS_PAR.some(cap => ultimas.has(cap))) {
+        ultimas.delete('resolver_par');
+      }
+
       let ultimoBloque = null;
       for (const t of ultimas.values()) {
         const def = NS.Widgets.porCapacidad(t.tool)
@@ -500,6 +510,16 @@
         });
         this._widgets.push(host);
         ultimoBloque = bloque;
+
+        // El selector de par (resolver_par sin par en watchlist) devuelve la
+        // elección hacia Kepler: se arma un mensaje con el par concreto y se
+        // envía como si Migue lo hubiera tecleado. Kepler, con el historial,
+        // recuerda qué estaba haciendo (velas/libro) y lo pide ya con exchange
+        // y quote. El widget NO pide datos por su cuenta: solo devuelve la
+        // elección a la conversación.
+        if (def.id === 'selector_par') {
+          this._engancharSeleccionPar(host);
+        }
       }
 
       // `#chat-msgs` no tiene scroll propio: crece y scrollea la PÁGINA. Por
@@ -509,19 +529,41 @@
       }
     },
 
+    /**
+     * Cierra el lazo del selector de par: la elección del usuario vuelve a
+     * Kepler como un mensaje. No se pide el dato acá —eso rompería el modelo
+     * conversacional—: Kepler recibe el par concreto y orquesta.
+     */
+    _engancharSeleccionPar(host) {
+      if (host._selparBound) return;
+      host._selparBound = true;
+      host.addEventListener('axiom:par-elegido', (ev) => {
+        const d = ev.detail || {};
+        const base  = (d.base || '').toUpperCase();
+        const quote = (d.quote || '').toUpperCase();
+        const ex    = (d.exchange || '').toUpperCase();
+        if (!base || !quote || !ex) return;
+        // Mensaje genérico: Kepler sabe por el historial si era velas/libro.
+        this._enviar(`Usá el par ${base}/${quote} en ${ex}.`);
+      });
+    },
+
     _escapar(s) {
       const d = document.createElement('div');
       d.textContent = s == null ? '' : String(s);
       return d.innerHTML;
     },
 
-    async _enviar() {
+    async _enviar(textoDirecto) {
       if (this._enviando) return;
       const input = document.getElementById('chat-input');
-      const texto = (input.value || '').trim();
+      // Si viene texto directo (ej. del selector de par), se usa ese; si no, el
+      // del input. Así el mismo método sirve para lo que teclea Migue y para la
+      // elección de un widget.
+      const texto = (textoDirecto != null ? textoDirecto : (input.value || '')).trim();
       if (!texto) return;
 
-      input.value = '';
+      if (textoDirecto == null) input.value = '';
       this._enviando = true;
       this._pintarMensaje('user', texto);
 
