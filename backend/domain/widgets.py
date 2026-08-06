@@ -283,6 +283,59 @@ registro_widgets.registrar(Widget(
 
 
 registro_widgets.registrar(Widget(
+    id="ficha_proyecto",
+    label="Ficha del proyecto",
+    grupo="Coin",
+    icono="ti-file-info",
+    descripcion=(
+        "La ficha de un proyecto: qué es, su emisión (supply), máximos y mínimos "
+        "históricos, categorías y enlaces (web, whitepaper, github, redes). Es la "
+        "vista natural de info_proyecto."
+    ),
+    capacidad="info_proyecto",
+    contextos=("pantalla", "panel", "chat", "dashboard"),
+    args_default={},
+
+    densidades={
+        # Ficha de lectura, no tabla: no cambia de columnas con el ancho.
+        "compacto": Densidad(hasta=520, campos=("ficha",)),
+        "normal":   Densidad(hasta=900, campos=("ficha",)),
+        "amplio":   Densidad(hasta=None, campos=("ficha",)),
+    },
+
+    ordenable_por=(),
+    metricas=(),
+))
+
+
+registro_widgets.registrar(Widget(
+    id="situacion_coin",
+    label="Situación de la coin",
+    grupo="Coin",
+    icono="ti-chart-dots",
+    descripcion=(
+        "Cómo se para una coin en el mercado: el régimen global que habita, su "
+        "fuerza frente a Bitcoin y la posición de su sector. Es la vista natural "
+        "de analizar_coin — la respuesta a '¿cómo viene X?'."
+    ),
+    capacidad="analizar_coin",
+    contextos=("pantalla", "panel", "chat", "dashboard"),
+    args_default={},
+
+    densidades={
+        # Es una tarjeta de lectura, no una tabla: no cambia de columnas con el
+        # ancho. Las tres densidades son iguales; el contenido se adapta solo.
+        "compacto": Densidad(hasta=520, campos=("situacion",)),
+        "normal":   Densidad(hasta=900, campos=("situacion",)),
+        "amplio":   Densidad(hasta=None, campos=("situacion",)),
+    },
+
+    ordenable_por=(),
+    metricas=(),
+))
+
+
+registro_widgets.registrar(Widget(
     id="tabla_coins",
     label="Top coins",
     grupo="Mercado",
