@@ -283,6 +283,50 @@ registro_widgets.registrar(Widget(
 
 
 registro_widgets.registrar(Widget(
+    id="noticias_coin_w",
+    label="Noticias de la coin",
+    grupo="Coin",
+    icono="ti-news",
+    descripcion=(
+        "Titulares recientes que mencionan a una coin, como tarjetas con imagen, "
+        "fuente y enlace. Es la vista natural de noticias_coin."
+    ),
+    capacidad="noticias_coin",
+    contextos=("pantalla", "panel", "chat", "dashboard"),
+    args_default={},
+    densidades={
+        "compacto": Densidad(hasta=520, campos=("noticias",)),
+        "normal":   Densidad(hasta=900, campos=("noticias",)),
+        "amplio":   Densidad(hasta=None, campos=("noticias",)),
+    },
+    ordenable_por=(),
+    metricas=(),
+))
+
+
+registro_widgets.registrar(Widget(
+    id="noticias_mercado_w",
+    label="Noticias del mercado",
+    grupo="Mercado",
+    icono="ti-news",
+    descripcion=(
+        "Titulares recientes del mercado cripto, como tarjetas con imagen, "
+        "fuente y enlace. Es la vista natural de noticias_mercado."
+    ),
+    capacidad="noticias_mercado",
+    contextos=("pantalla", "panel", "chat", "dashboard"),
+    args_default={},
+    densidades={
+        "compacto": Densidad(hasta=520, campos=("noticias",)),
+        "normal":   Densidad(hasta=900, campos=("noticias",)),
+        "amplio":   Densidad(hasta=None, campos=("noticias",)),
+    },
+    ordenable_por=(),
+    metricas=(),
+))
+
+
+registro_widgets.registrar(Widget(
     id="ficha_proyecto",
     label="Ficha del proyecto",
     grupo="Coin",

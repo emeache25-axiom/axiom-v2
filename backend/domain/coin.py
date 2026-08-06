@@ -18,6 +18,7 @@ Estado de las capacidades en este esqueleto (paso 1):
 """
 from __future__ import annotations
 import json
+import re
 
 from backend.domain.base import Composable
 from backend.domain.par import Par
@@ -221,33 +222,54 @@ class Coin(Composable):
         """
         Noticias de la coin: filtra el feed global de Mercado por símbolo+nombre.
         Una sola fuente de RSS (Mercado); la Coin solo filtra su vista.
-        Filtrado simple (match en título+resumen); refinable después.
+
+        El match es por PALABRA COMPLETA, no substring: 'ONT' matchea el token
+        'ONT' pero NO 'fr[ONT]', 'c[ont]ract' ni 'm[ont]h'. Sin esto, símbolos
+        cortos daban muchos falsos positivos (era el problema conocido del filtro).
+        Los símbolos de 1-2 caracteres (irremediablemente ambiguos aunque sean
+        token completo: 'M', 'TON') exigen que aparezca el NOMBRE de la coin, no
+        alcanza el símbolo suelto.
         """
         mercado = self._mercado()
         feed = await mercado.feed_noticias()
         articulos = feed.get("articulos", []) if isinstance(feed, dict) else []
 
-        # Datos para el match: símbolo y nombre de la coin
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
                 "SELECT symbol, name FROM coins WHERE id=$1", self.id)
         if not row:
             return {"articulos": []}
-        symbol = (row["symbol"] or "").lower()
-        name   = (row["name"] or "").lower()
-        terminos = {t for t in (symbol, name) if t and len(t) >= 2}
+        symbol = (row["symbol"] or "").strip().lower()
+        name   = (row["name"] or "").strip().lower()
+
+        # Patrones de palabra completa. El nombre siempre cuenta si tiene 3+
+        # caracteres. El símbolo cuenta solo si tiene 3+ (los de 1-2 son demasiado
+        # ambiguos: se exige el nombre en su lugar).
+        patrones = []
+        if name and len(name) >= 3:
+            patrones.append(re.compile(r"\b" + re.escape(name) + r"\b"))
+        if symbol and len(symbol) >= 3:
+            patrones.append(re.compile(r"\b" + re.escape(symbol) + r"\b"))
+
+        # Si no quedó ningún patrón seguro (símbolo corto y nombre corto),
+        # caemos al nombre exacto aunque sea corto — mejor perder notas que
+        # inundar de falsos positivos.
+        if not patrones and name:
+            patrones.append(re.compile(r"\b" + re.escape(name) + r"\b"))
 
         def _matches(art: dict) -> bool:
-            # Claves reales del artículo del news_service: title, summary
             texto = ""
             for campo in ("title", "summary"):
                 v = art.get(campo)
                 if v:
                     texto += " " + str(v).lower()
-            return any(t in texto for t in terminos)
+            return any(p.search(texto) for p in patrones)
 
         filtrados = [a for a in articulos if _matches(a)]
-        return {"articulos": filtrados, "match_terms": sorted(terminos)}
+        return {
+            "articulos": filtrados,
+            "match_terms": [p.pattern for p in patrones],
+        }
 
     @capacidad(
         nombre="pares_de_coin",
