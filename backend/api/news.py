@@ -10,7 +10,7 @@ router = APIRouter(prefix="/api/news", tags=["news"])
 
 @router.get("/")
 async def get_news_feed(
-    limit: int   = Query(150, ge=1, le=150),
+    limit: int   = Query(300, ge=1, le=300),
     source: Optional[str] = Query(None),
 ):
     return await get_news(limit=limit, source=source)
